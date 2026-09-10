@@ -1,0 +1,274 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum PaymentStatus {
+  pending
+  paid
+  failed
+  refunded
+}
+
+enum ProductionStatus {
+  pending
+  in_production
+  finished
+  packed
+  ready_for_pickup
+  cancelled
+  requires_manual_review
+}
+
+enum ShippingStatus {
+  not_created
+  pending
+  label_created
+  pickup_requested
+  in_transit
+  delivered
+  exception
+  cancelled
+}
+
+enum ReviewStatus {
+  scheduled
+  sent
+  failed
+  cancelled
+}
+
+enum AutomationStatus {
+  success
+  failed
+  skipped
+}
+
+model Factory {
+  id        String   @id @default(cuid())
+  name      String
+  email     String?
+  phone     String?
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  products         Product[]
+  productionOrders ProductionOrder[]
+}
+
+model PackageType {
+  id                     String   @id @default(cuid())
+  code                   String   @unique
+  maxWeightGrams         Int
+  internalLengthCm       Float
+  internalWidthCm        Float
+  internalHeightCm       Float
+  externalLengthCm       Float
+  externalWidthCm        Float
+  externalHeightCm       Float
+  packagingWeightGrams   Int
+  active                  Boolean  @default(true)
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
+}
+
+model Product {
+  id                     String   @id @default(cuid())
+  sku                    String   @unique
+  name                   String
+  weightGrams            Int?
+  lengthCm               Float?
+  widthCm                Float?
+  heightCm               Float?
+  packagingType          String?
+  packagingWeightGrams   Int?
+  productionTimeHours    Int?
+  factoryId              String?
+  active                 Boolean  @default(true)
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+
+  factory    Factory?    @relation(fields: [factoryId], references: [id])
+  orderItems OrderItem[]
+}
+
+model Order {
+  id               String           @id @default(cuid())
+  externalOrderId  String           @unique
+  wooOrderKey      String?
+  wooStatus        String?
+  customerName     String
+  customerEmail    String
+  customerPhone    String?
+  addressLine1     String
+  addressLine2     String?
+  city             String
+  postalCode       String
+  province         String?
+  country          String
+  paymentStatus    PaymentStatus
+  productionStatus ProductionStatus @default(pending)
+  shippingStatus   ShippingStatus   @default(not_created)
+  totalAmount      Decimal?         @db.Decimal(12, 2)
+  currency         String           @default("EUR")
+  rawPayload       Json?
+
+  // Dynamic sender/remitente override for this order. When absent, the
+  // company default address (see src/config/company.ts) is used instead.
+  senderName          String?
+  senderAddressLine1  String?
+  senderAddressLine2  String?
+  senderCity          String?
+  senderPostalCode    String?
+  senderProvince      String?
+  senderCountry       String?
+  senderPhone         String?
+  senderEmail         String?
+
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+
+  items             OrderItem[]
+  productionOrders  ProductionOrder[]
+  shipments         Shipment[]
+  reviewRequests    ReviewRequest[]
+  automationLogs    AutomationLog[]
+}
+
+model OrderItem {
+  id                String   @id @default(cuid())
+  orderId           String
+  productId         String
+  sku               String
+  quantity          Int
+  unitPrice         Decimal? @db.Decimal(12, 2)
+  createdAt         DateTime @default(now())
+
+  order   Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product Product @relation(fields: [productId], references: [id])
+}
+
+model ProductionOrder {
+  id               String           @id @default(cuid())
+  orderId          String
+  factoryId        String
+  status           ProductionStatus @default(pending)
+  notes            String?
+  startedAt        DateTime?
+  finishedAt       DateTime?
+  packedAt         DateTime?
+  readyForPickupAt DateTime?
+  targetFinishAt   DateTime?
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+
+  order   Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  factory Factory @relation(fields: [factoryId], references: [id])
+
+  @@unique([orderId, factoryId])
+}
+
+model Shipment {
+  id                    String         @id @default(cuid())
+  orderId               String         @unique
+  carrier               String         @default("dhl")
+  carrierShipmentId     String?
+  trackingNumber        String?        @unique
+  service                String?
+  totalWeightGrams       Int
+  lengthCm               Float
+  widthCm                Float
+  heightCm               Float
+  labelUrl                String?
+  pickupRequestId         String?
+  estimatedDeliveryDate   DateTime?
+  status                  ShippingStatus @default(pending)
+  providerPayload         Json?
+
+  // Sender/remitente snapshot used for this shipment (may vary per order).
+  senderName          String?
+  senderAddressLine1  String?
+  senderAddressLine2  String?
+  senderCity          String?
+  senderPostalCode    String?
+  senderProvince      String?
+  senderCountry       String?
+  senderPhone         String?
+  senderEmail         String?
+
+  createdAt          DateTime       @default(now())
+  updatedAt          DateTime       @updatedAt
+
+  order          Order           @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  trackingEvents TrackingEvent[]
+}
+
+model TrackingEvent {
+  id          String   @id @default(cuid())
+  shipmentId  String
+  status      String
+  description String?
+  location    String?
+  eventDate   DateTime
+  rawPayload  Json?
+
+  shipment Shipment @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
+
+  @@index([shipmentId, eventDate])
+}
+
+model ReviewRequest {
+  id           String       @id @default(cuid())
+  orderId      String
+  scheduledFor DateTime
+  sentAt       DateTime?
+  status       ReviewStatus @default(scheduled)
+  channel      String       @default("email")
+  lastError    String?
+
+  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([status, scheduledFor])
+}
+
+model AutomationLog {
+  id        String           @id @default(cuid())
+  orderId   String?
+  action    String
+  status    AutomationStatus
+  message   String?
+  payload   Json?
+  createdAt DateTime         @default(now())
+
+  order Order? @relation(fields: [orderId], references: [id], onDelete: SetNull)
+
+  @@index([orderId, createdAt])
+}
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String
+  role         String   @default("admin")
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+// Idempotency record for inbound webhook deliveries (e.g. WooCommerce).
+// Prevents reprocessing the same delivery when the sender retries.
+model WebhookDelivery {
+  id         String   @id @default(cuid())
+  source     String
+  deliveryId String
+  topic      String?
+  orderId    String?
+  receivedAt DateTime @default(now())
+
+  @@unique([source, deliveryId])
+  @@index([source, receivedAt])
+}
