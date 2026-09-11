@@ -75,6 +75,10 @@ npm run seed
 npm run dev
 ```
 
+El seed carga el catálogo real de Solid Creaciones (`prisma/data/solid-creaciones-catalog.ts`, generado a partir de `TARIFA_SOLID_MEDIDAS_Y_PESO.xlsx`): 93 SKUs de las líneas Lyam (Lamber), Adhex (Omara), Lyss (Lars), Declive (Dyagonal) y Complementos, con su peso real y medidas de embalaje, más las 12 cajas (`PackageType`) derivadas de esas medidas. Si la tarifa cambia, regenera este fichero a partir del Excel actualizado en vez de editarlo a mano.
+
+> Nota sobre el mapeo de datos: `Product.weightGrams` se toma de la columna "PESO REAL" del Excel (peso del artículo ya embalado, listo para enviar) y `Product.lengthCm/widthCm/heightCm` de "MEDIDAS DE EMBALAJE" (largo, ancho, alto — ese orden no cambia). Como el peso real ya incluye el embalaje individual, las cajas (`PackageType`) generadas llevan `packagingWeightGrams: 0` para no contarlo dos veces; el peso máximo de cada caja es el mayor entre el tramo "HASTA X KILOS" de la tarifa y el peso real máximo observado en esa caja (dos referencias, LCD-03 y ACD-03, pesan 3,2 kg pese a estar en el tramo "hasta 3 kilos" del Excel — se ajustó al alza para que no queden fuera de catálogo).
+
 Login de demo tras el seed: `admin@example.com` / `ChangeMe123!` (cámbialo de inmediato).
 
 ```bash
