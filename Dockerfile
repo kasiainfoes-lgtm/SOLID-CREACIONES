@@ -5,6 +5,7 @@ RUN npm ci || npm install
 COPY tsconfig.json ./
 COPY prisma ./prisma
 COPY src ./src
+COPY public ./public
 RUN npx prisma generate && npm run build
 
 FROM node:22-alpine
@@ -16,5 +17,7 @@ COPY --from=build /app/node_modules/.prisma /app/node_modules/.prisma
 COPY --from=build /app/node_modules/@prisma /app/node_modules/@prisma
 COPY --from=build /app/dist ./dist
 COPY prisma ./prisma
+# The invoicing UI is a plain HTML file served by the app at /facturas.
+COPY public ./public
 EXPOSE 3000
 CMD ["sh", "-c", "npx prisma migrate deploy && node dist/src/server.js"]

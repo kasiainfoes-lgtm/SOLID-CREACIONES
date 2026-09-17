@@ -52,6 +52,18 @@ const schema = z.object({
   COMPANY_PROVINCE: z.string().default('València'),
   COMPANY_COUNTRY: z.string().default('ES'),
 
+  // --- Facturación ------------------------------------------------------
+  // The invoices are issued under the registered trade name, which differs
+  // from the COMPANY_NAME used for shipping labels.
+  INVOICE_ISSUER_NAME: z.string().default('Innova Superficies Sólidas C.B.'),
+  INVOICE_ISSUER_ADDRESS_EXTRA: z.string().optional().default('POL. IND. LA GARROFERA'),
+  INVOICE_DEFAULT_VAT_RATE: z.coerce.number().min(0).max(100).default(21),
+  INVOICE_PAYMENT_METHOD: z.string().default('TRANSFERENCIA A LA VISTA'),
+  // Bank details are printed on every invoice. Keep them in .env (not in git):
+  // an empty value simply leaves the bank block off the invoice.
+  INVOICE_BANK_NAME: z.string().optional().default(''),
+  INVOICE_BANK_IBAN: z.string().optional().default(''),
+
   // --- Factory notification -------------------------------------------
   // WhatsApp has no official API access yet, so notifications go out over
   // email (default) or a generic outbound webhook (Make/n8n/etc.) that can

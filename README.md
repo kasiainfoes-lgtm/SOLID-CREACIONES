@@ -26,6 +26,7 @@ Backend que automatiza:
 - Idempotencia de webhooks, protección contra creación duplicada de envíos (a nivel de aplicación y de base de datos), reintentos controlados en llamadas HTTP salientes.
 - Logs estructurados (pino) + auditoría de negocio en `AutomationLog`.
 - Endpoint de health check (`GET /health`).
+- **Facturación**: página web en `/facturas` para crear facturas sin Excel (numeración automática por año, memoria de clientes y precios, cálculo exacto de IVA e impresión a PDF en A4).
 - Seed de desarrollo y migraciones Prisma.
 
 ## Arquitectura de carpetas
@@ -49,8 +50,11 @@ src/
     notifications/            FactoryNotifier (interfaz) + email/webhook
     reviews/                  programación y envío del email de reseña
     auth/                     login JWT
+    invoices/                 facturación: importes, numeración, API y página web
   jobs/
     review.job.ts             worker periódico que envía reseñas pendientes
+public/
+  facturas/index.html         página de facturación (un único archivo, sin build)
 ```
 
 ## Puesta en marcha (Docker)
@@ -188,10 +192,56 @@ Cuando **todas** las órdenes de fabricación del pedido (puede haber varias si 
 | POST | `/shipping/orders/:orderId/create` | JWT | Crea envío manualmente |
 | POST | `/shipping/:id/refresh-tracking` | JWT | Refresca tracking DHL/mock |
 | POST | `/auth/login` | - | Login admin/fábrica |
+| GET | `/facturas` | - | Página web de facturación (pide login al abrirse) |
+| GET | `/invoices` | JWT | Lista de facturas |
+| POST | `/invoices` | JWT | Crea una factura (asigna número si no se indica) |
+| GET | `/invoices/next-number` | JWT | Siguiente número libre de la serie |
+| GET | `/invoices/summary?year=` | JWT | Totales por trimestre (modelo 303) |
+| GET | `/invoices/from-order/:orderId` | JWT | Borrador de factura a partir de un pedido |
+| PATCH | `/invoices/:id/status` | JWT | Cambia el estado (borrador/emitida/cobrada/anulada) |
+| GET/POST | `/clients` | JWT | Clientes guardados |
+
+## Facturación (`/facturas`)
+
+Sustituye al Excel con el que se hacían las facturas a mano. Es **una sola página**
+que se abre en el navegador: se escribe directamente encima de la factura y lo que
+se ve en pantalla es exactamente lo que sale impreso en A4.
+
+Qué hace sola:
+
+- **Numera** la factura siguiendo la serie del año (`2026-037` → `2026-038`), sin
+  huecos. La primera vez basta con escribir el número por el que se va, y a partir
+  de ahí continúa sola.
+- **Recuerda los clientes**: los datos de un cliente se escriben una vez y después
+  se eligen por el nombre y se rellenan solos (nombre, CIF, dirección).
+- **Recupera el precio** de un artículo a partir de su referencia mirando la última
+  factura en la que aparece.
+- **Calcula el IVA al céntimo**. El Excel anterior imprimía totales como
+  `520,29999999999995` porque sumaba en coma flotante; aquí todo se redondea a
+  céntimos (ver `src/modules/invoices/invoice.totals.ts` y sus tests).
+- **Duplica** una factura anterior con el número siguiente, para clientes que se
+  repiten cada mes.
+- **Resumen de IVA por trimestre** y **exportación a CSV** para la gestoría.
+- **Imprimir / PDF**: usa la impresión del navegador ("Guardar como PDF"), con la
+  hoja ya ajustada a A4.
+
+Dónde se guarda: al abrirse desde el backend, las facturas van a PostgreSQL y las
+comparten todos los usuarios. Si la página se abre suelta (por ejemplo, el archivo
+`public/facturas/index.html` copiado a un ordenador), sigue funcionando y guarda en
+ese navegador. El aviso de la esquina inferior izquierda dice siempre cuál de las
+dos cosas está pasando.
+
+El emisor, la forma de pago y el banco salen de las variables `INVOICE_*` del
+`.env`. **El IBAN no está en el repositorio**: se rellena en el `.env` del servidor
+o se escribe una vez en la propia página, que lo recuerda para las siguientes.
+
+Facturar un pedido de la tienda: `GET /invoices/from-order/:orderId` devuelve el
+borrador con el cliente y las líneas del pedido de WooCommerce ya rellenados, listo
+para revisar y guardar.
 
 ## Variables de entorno
 
-Ver `.env.example` para la lista completa y comentada (WooCommerce, DHL, remitente/empresa, notificador de fábrica, notificador de reseñas, SMTP).
+Ver `.env.example` para la lista completa y comentada (WooCommerce, DHL, remitente/empresa, facturación, notificador de fábrica, notificador de reseñas, SMTP).
 
 ## Despliegue en VPS de Hostinger
 

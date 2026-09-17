@@ -25,3 +25,23 @@ export const COMPANY_DEFAULT_SENDER: Address = {
   phone: COMPANY.PHONE || undefined,
   email: COMPANY.EMAIL
 };
+
+/**
+ * Fixed data printed on every invoice. The web UI at /facturas reads this from
+ * GET /invoices/settings so the boss never has to retype it.
+ */
+export const INVOICE_ISSUER = {
+  name: env.INVOICE_ISSUER_NAME,
+  addressExtra: env.INVOICE_ISSUER_ADDRESS_EXTRA,
+  addressLine1: COMPANY.ADDRESS_LINE1,
+  postalCode: COMPANY.POSTAL_CODE,
+  city: COMPANY.CITY,
+  province: COMPANY.PROVINCE,
+  taxId: COMPANY.CIF,
+  phone: COMPANY.PHONE,
+  email: COMPANY.EMAIL,
+  defaultVatRate: env.INVOICE_DEFAULT_VAT_RATE,
+  defaultPaymentMethod: env.INVOICE_PAYMENT_METHOD,
+  bankName: env.INVOICE_BANK_NAME,
+  bankIban: env.INVOICE_BANK_IBAN
+} as const;

@@ -62,36 +62,36 @@ model Factory {
 }
 
 model PackageType {
-  id                     String   @id @default(cuid())
-  code                   String   @unique
-  maxWeightGrams         Int
-  internalLengthCm       Float
-  internalWidthCm        Float
-  internalHeightCm       Float
-  externalLengthCm       Float
-  externalWidthCm        Float
-  externalHeightCm       Float
-  packagingWeightGrams   Int
-  active                  Boolean  @default(true)
-  createdAt               DateTime @default(now())
-  updatedAt               DateTime @updatedAt
+  id                   String   @id @default(cuid())
+  code                 String   @unique
+  maxWeightGrams       Int
+  internalLengthCm     Float
+  internalWidthCm      Float
+  internalHeightCm     Float
+  externalLengthCm     Float
+  externalWidthCm      Float
+  externalHeightCm     Float
+  packagingWeightGrams Int
+  active               Boolean  @default(true)
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
 }
 
 model Product {
-  id                     String   @id @default(cuid())
-  sku                    String   @unique
-  name                   String
-  weightGrams            Int?
-  lengthCm               Float?
-  widthCm                Float?
-  heightCm               Float?
-  packagingType          String?
-  packagingWeightGrams   Int?
-  productionTimeHours    Int?
-  factoryId              String?
-  active                 Boolean  @default(true)
-  createdAt              DateTime @default(now())
-  updatedAt              DateTime @updatedAt
+  id                   String   @id @default(cuid())
+  sku                  String   @unique
+  name                 String
+  weightGrams          Int?
+  lengthCm             Float?
+  widthCm              Float?
+  heightCm             Float?
+  packagingType        String?
+  packagingWeightGrams Int?
+  productionTimeHours  Int?
+  factoryId            String?
+  active               Boolean  @default(true)
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
 
   factory    Factory?    @relation(fields: [factoryId], references: [id])
   orderItems OrderItem[]
@@ -120,34 +120,35 @@ model Order {
 
   // Dynamic sender/remitente override for this order. When absent, the
   // company default address (see src/config/company.ts) is used instead.
-  senderName          String?
-  senderAddressLine1  String?
-  senderAddressLine2  String?
-  senderCity          String?
-  senderPostalCode    String?
-  senderProvince      String?
-  senderCountry       String?
-  senderPhone         String?
-  senderEmail         String?
+  senderName         String?
+  senderAddressLine1 String?
+  senderAddressLine2 String?
+  senderCity         String?
+  senderPostalCode   String?
+  senderProvince     String?
+  senderCountry      String?
+  senderPhone        String?
+  senderEmail        String?
 
-  createdAt        DateTime         @default(now())
-  updatedAt        DateTime         @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  items             OrderItem[]
-  productionOrders  ProductionOrder[]
-  shipments         Shipment[]
-  reviewRequests    ReviewRequest[]
-  automationLogs    AutomationLog[]
+  items            OrderItem[]
+  productionOrders ProductionOrder[]
+  shipments        Shipment[]
+  reviewRequests   ReviewRequest[]
+  automationLogs   AutomationLog[]
+  invoices         Invoice[]
 }
 
 model OrderItem {
-  id                String   @id @default(cuid())
-  orderId           String
-  productId         String
-  sku               String
-  quantity          Int
-  unitPrice         Decimal? @db.Decimal(12, 2)
-  createdAt         DateTime @default(now())
+  id        String   @id @default(cuid())
+  orderId   String
+  productId String
+  sku       String
+  quantity  Int
+  unitPrice Decimal? @db.Decimal(12, 2)
+  createdAt DateTime @default(now())
 
   order   Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
   product Product @relation(fields: [productId], references: [id])
@@ -179,30 +180,30 @@ model Shipment {
   carrier               String         @default("dhl")
   carrierShipmentId     String?
   trackingNumber        String?        @unique
-  service                String?
-  totalWeightGrams       Int
-  lengthCm               Float
-  widthCm                Float
-  heightCm               Float
-  labelUrl                String?
-  pickupRequestId         String?
-  estimatedDeliveryDate   DateTime?
-  status                  ShippingStatus @default(pending)
-  providerPayload         Json?
+  service               String?
+  totalWeightGrams      Int
+  lengthCm              Float
+  widthCm               Float
+  heightCm              Float
+  labelUrl              String?
+  pickupRequestId       String?
+  estimatedDeliveryDate DateTime?
+  status                ShippingStatus @default(pending)
+  providerPayload       Json?
 
   // Sender/remitente snapshot used for this shipment (may vary per order).
-  senderName          String?
-  senderAddressLine1  String?
-  senderAddressLine2  String?
-  senderCity          String?
-  senderPostalCode    String?
-  senderProvince      String?
-  senderCountry       String?
-  senderPhone         String?
-  senderEmail         String?
+  senderName         String?
+  senderAddressLine1 String?
+  senderAddressLine2 String?
+  senderCity         String?
+  senderPostalCode   String?
+  senderProvince     String?
+  senderCountry      String?
+  senderPhone        String?
+  senderEmail        String?
 
-  createdAt          DateTime       @default(now())
-  updatedAt          DateTime       @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   order          Order           @relation(fields: [orderId], references: [id], onDelete: Cascade)
   trackingEvents TrackingEvent[]
@@ -271,4 +272,100 @@ model WebhookDelivery {
 
   @@unique([source, deliveryId])
   @@index([source, receivedAt])
+}
+
+// ---------------------------------------------------------------------------
+// Facturación
+// ---------------------------------------------------------------------------
+
+enum InvoiceStatus {
+  draft
+  issued
+  paid
+  cancelled
+}
+
+model Client {
+  id           String   @id @default(cuid())
+  name         String
+  taxId        String?
+  addressLine1 String?
+  addressLine2 String?
+  postalCode   String?
+  city         String?
+  province     String?
+  country      String   @default("ES")
+  email        String?
+  phone        String?
+  notes        String?
+  active       Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  invoices Invoice[]
+
+  @@index([name])
+}
+
+model Invoice {
+  id       String @id @default(cuid())
+  // Human-facing number, "2026-037". Sequence is per calendar year and must
+  // have no gaps, which Spanish invoicing rules require.
+  number   String @unique
+  year     Int
+  sequence Int
+
+  issueDate DateTime
+  status    InvoiceStatus @default(issued)
+
+  clientId           String?
+  // Client data is snapshotted on the invoice: editing a client later must
+  // never alter an invoice that was already issued.
+  clientName         String
+  clientTaxId        String?
+  clientAddressLine1 String?
+  clientAddressLine2 String?
+  clientPostalCode   String?
+  clientCity         String?
+  clientProvince     String?
+
+  // Free-text reference shown above the lines ("Pedido nº S00016") and, when
+  // the invoice was generated from an automated order, a link back to it.
+  reference String?
+  orderId   String?
+
+  vatRate   Decimal @db.Decimal(5, 2)
+  subtotal  Decimal @db.Decimal(12, 2)
+  vatAmount Decimal @db.Decimal(12, 2)
+  total     Decimal @db.Decimal(12, 2)
+
+  paymentMethod String?
+  bankName      String?
+  bankIban      String?
+  notes         String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  client Client?       @relation(fields: [clientId], references: [id])
+  order  Order?        @relation(fields: [orderId], references: [id])
+  lines  InvoiceLine[]
+
+  @@unique([year, sequence])
+  @@index([issueDate])
+}
+
+model InvoiceLine {
+  id          String  @id @default(cuid())
+  invoiceId   String
+  position    Int
+  code        String?
+  description String
+  quantity    Decimal @db.Decimal(12, 3)
+  unitPrice   Decimal @db.Decimal(12, 2)
+  total       Decimal @db.Decimal(12, 2)
+
+  invoice Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  @@index([invoiceId, position])
 }

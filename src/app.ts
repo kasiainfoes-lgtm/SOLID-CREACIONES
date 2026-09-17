@@ -9,6 +9,7 @@ import { productRoutes } from './modules/products/product.routes.js';
 import { factoryRoutes } from './modules/factory/factory.routes.js';
 import { shippingRoutes } from './modules/shipping/shipping.routes.js';
 import { woocommerceRoutes } from './modules/woocommerce/woocommerce.routes.js';
+import { invoiceRoutes } from './modules/invoices/invoice.routes.js';
 import { prisma } from './lib/prisma.js';
 
 export async function buildApp() {
@@ -45,5 +46,6 @@ export async function buildApp() {
   await app.register(factoryRoutes);
   await app.register(shippingRoutes);
   await app.register(woocommerceRoutes);
+  await app.register(invoiceRoutes);
   return app;
 }
