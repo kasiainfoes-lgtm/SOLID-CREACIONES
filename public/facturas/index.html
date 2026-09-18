@@ -245,7 +245,7 @@
   }
   .add-line:hover { border-color: var(--paper-rule); color: var(--paper-rule); }
 
-  .sheet-foot { margin-top: auto; display: grid; grid-template-columns: 1fr 78mm; gap: 8mm; align-items: end; }
+  .sheet-foot { margin-top: 14mm; display: grid; grid-template-columns: 1fr 78mm; gap: 8mm; align-items: end; }
   .pay { font-size: 9.5pt; display: grid; gap: 2mm; }
   .pay .iban input { font-family: "IBM Plex Mono", monospace; font-size: 9pt; letter-spacing: .01em; }
   .totals { display: grid; gap: 0; }
@@ -296,7 +296,7 @@
   }
 
   /* --------------------------------------------------------------- phone */
-  @media (max-width: 880px) {
+  @media screen and (max-width: 880px) {
     .layout { grid-template-columns: minmax(0, 1fr); }
     .rail { position: static; height: auto; border-right: 0; border-bottom: 1px solid var(--line); }
     .invoice-list { max-height: 210px; }
@@ -322,7 +322,7 @@
     .layout { display: block; }
     .canvas { padding: 0; display: block; }
     .sheet {
-      width: 210mm; max-width: none; min-height: 297mm; margin: 0;
+      width: 210mm; max-width: none; min-height: 0; margin: 0;
       box-shadow: none; border-radius: 0; padding: 16mm 15mm; font-size: 11pt;
     }
     .sheet input, .sheet textarea, .sheet select { border-bottom-color: transparent !important; background: transparent !important; }
@@ -783,6 +783,19 @@
     textarea.style.height = 'auto';
     textarea.style.height = Math.max(textarea.scrollHeight, 20) + 'px';
   }
+
+  /**
+   * A description textarea's height is fixed in pixels the moment its text
+   * changes, based on how wide it is ON SCREEN at that instant. The printed
+   * page is a different, usually wider, column, so a height frozen on screen
+   * can leave text wrapped onto an extra line it no longer needs — which is
+   * exactly what used to push a short invoice onto an unwanted second page.
+   * Recomputed right before printing so print always reflects its own width.
+   */
+  function resizeLineTextareas() {
+    for (const textarea of $('lineBody').querySelectorAll('textarea')) autoGrow(textarea);
+  }
+  window.addEventListener('beforeprint', resizeLineTextareas);
 
   function renderLines() {
     const body = $('lineBody');
@@ -1331,7 +1344,7 @@
   $('addLineBtn').addEventListener('click', addLine);
   $('saveBtn').addEventListener('click', save);
   $('newBtn').addEventListener('click', () => newInvoice());
-  $('printBtn').addEventListener('click', () => window.print());
+  $('printBtn').addEventListener('click', () => { resizeLineTextareas(); window.print(); });
   $('duplicateBtn').addEventListener('click', () => {
     const source = state.invoices.find(inv => inv.id === state.currentId);
     if (source) { newInvoice(source); toast('Copia lista con el número siguiente'); }
