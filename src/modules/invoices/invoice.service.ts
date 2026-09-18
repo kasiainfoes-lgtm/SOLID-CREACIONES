@@ -1,7 +1,7 @@
 import { Prisma, type InvoiceStatus } from '@prisma/client';
 import { INVOICE_ISSUER } from '../../config/company.js';
 import { prisma } from '../../lib/prisma.js';
-import { computeTotals, formatInvoiceNumber, type InvoiceLineInput } from './invoice.totals.js';
+import { computeTotals, formatInvoiceNumber, type InvoiceDiscountInput, type InvoiceLineInput } from './invoice.totals.js';
 
 export type CreateInvoiceInput = {
   issueDate: Date;
@@ -19,6 +19,8 @@ export type CreateInvoiceInput = {
   };
   lines: InvoiceLineInput[];
   vatRate: number;
+  /** Coupon/discount applied to this invoice, e.g. a client's promo code. */
+  discount?: InvoiceDiscountInput | null;
   reference?: string;
   orderId?: string;
   paymentMethod?: string;
@@ -68,7 +70,7 @@ async function resolveClient(input: CreateInvoiceInput) {
 export async function createInvoice(input: CreateInvoiceInput) {
   if (input.lines.length === 0) throw new Error('An invoice needs at least one line');
 
-  const totals = computeTotals(input.lines, input.vatRate);
+  const totals = computeTotals(input.lines, input.vatRate, input.discount);
   const client = await resolveClient(input);
   const year = input.issueDate.getFullYear();
 
@@ -98,8 +100,13 @@ export async function createInvoice(input: CreateInvoiceInput) {
           clientProvince: client.province,
           reference: input.reference,
           orderId: input.orderId,
+          discountLabel: input.discount?.label || null,
+          discountType: totals.discountAmount > 0 ? input.discount?.type ?? null : null,
+          discountValue: input.discount?.value != null ? new Prisma.Decimal(input.discount.value) : null,
+          discountAmount: new Prisma.Decimal(totals.discountAmount),
           vatRate: new Prisma.Decimal(input.vatRate),
           subtotal: new Prisma.Decimal(totals.subtotal),
+          taxableBase: new Prisma.Decimal(totals.taxableBase),
           vatAmount: new Prisma.Decimal(totals.vatAmount),
           total: new Prisma.Decimal(totals.total),
           paymentMethod: input.paymentMethod ?? INVOICE_ISSUER.defaultPaymentMethod,
@@ -157,12 +164,14 @@ export function getInvoice(id: string) {
 export async function quarterlySummary(year: number) {
   const invoices = await prisma.invoice.findMany({
     where: { year, status: { not: 'cancelled' } },
-    select: { issueDate: true, subtotal: true, vatAmount: true, total: true }
+    select: { issueDate: true, taxableBase: true, vatAmount: true, total: true }
   });
 
   const quarters = [1, 2, 3, 4].map(quarter => ({
     quarter,
     count: 0,
+    // "Base": the taxable base (after any coupon), which is what the
+    // modelo 303 wants — not the gross subtotal before the discount.
     subtotal: 0,
     vatAmount: 0,
     total: 0
@@ -172,7 +181,7 @@ export async function quarterlySummary(year: number) {
     const quarter = Math.floor(invoice.issueDate.getMonth() / 3);
     const bucket = quarters[quarter];
     bucket.count += 1;
-    bucket.subtotal += invoice.subtotal.toNumber();
+    bucket.subtotal += invoice.taxableBase.toNumber();
     bucket.vatAmount += invoice.vatAmount.toNumber();
     bucket.total += invoice.total.toNumber();
   }

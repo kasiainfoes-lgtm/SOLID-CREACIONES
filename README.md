@@ -219,6 +219,11 @@ Qué hace sola:
 - **Calcula el IVA al céntimo**. El Excel anterior imprimía totales como
   `520,29999999999995` porque sumaba en coma flotante; aquí todo se redondea a
   céntimos (ver `src/modules/invoices/invoice.totals.ts` y sus tests).
+- **Cupón / descuento**: un campo de "Cupón" en % o en € que resta sobre el bruto
+  antes de calcular el IVA (Bruto → Descuento → Base imponible → IVA → Total), tal
+  y como se hace en una factura real. Un descuento mal escrito nunca puede dejar la
+  base en negativo — se limita automáticamente. La fila solo aparece impresa cuando
+  hay descuento; en una factura normal no se ve.
 - **Duplica** una factura anterior con el número siguiente, para clientes que se
   repiten cada mes.
 - **Resumen de IVA por trimestre** y **exportación a CSV** para la gestoría.

@@ -16,9 +16,23 @@ export type InvoiceLineInput = {
 
 export type InvoiceLineTotals = InvoiceLineInput & { position: number; total: number };
 
+export type DiscountType = 'percentage' | 'fixed';
+
+export type InvoiceDiscountInput = {
+  /** Coupon code or reason printed on the invoice, e.g. "BIENVENIDA10". */
+  label?: string | null;
+  type: DiscountType;
+  /** A percentage (0-100) when type is "percentage", or a euro amount otherwise. */
+  value: number;
+};
+
 export type InvoiceTotals = {
   lines: InvoiceLineTotals[];
+  /** Sum of the lines before any discount ("Bruto"). */
   subtotal: number;
+  discountAmount: number;
+  /** subtotal - discountAmount ("Base imponible"): what VAT is calculated on. */
+  taxableBase: number;
   vatAmount: number;
   total: number;
 };
@@ -37,7 +51,25 @@ export function roundCents(value: number): number {
   return cents / 100;
 }
 
-export function computeTotals(lines: InvoiceLineInput[], vatRate: number): InvoiceTotals {
+/**
+ * A coupon/discount is applied to the gross subtotal, before VAT — the
+ * standard Spanish invoicing order (descuento sobre la base imponible).
+ * Clamped so a mistyped coupon can never push the taxable base negative.
+ */
+function computeDiscountAmount(subtotal: number, discount?: InvoiceDiscountInput | null): number {
+  if (!discount || !(discount.value > 0)) return 0;
+  if (discount.type === 'percentage') {
+    const pct = Math.min(Math.max(discount.value, 0), 100);
+    return roundCents((subtotal * pct) / 100);
+  }
+  return roundCents(Math.min(Math.max(discount.value, 0), subtotal));
+}
+
+export function computeTotals(
+  lines: InvoiceLineInput[],
+  vatRate: number,
+  discount?: InvoiceDiscountInput | null
+): InvoiceTotals {
   const computed = lines.map((line, index) => ({
     ...line,
     position: index + 1,
@@ -47,10 +79,12 @@ export function computeTotals(lines: InvoiceLineInput[], vatRate: number): Invoi
   // Sum the already-rounded line totals so the printed lines always add up to
   // the printed subtotal.
   const subtotal = roundCents(computed.reduce((sum, line) => sum + line.total, 0));
-  const vatAmount = roundCents((subtotal * vatRate) / 100);
-  const total = roundCents(subtotal + vatAmount);
+  const discountAmount = computeDiscountAmount(subtotal, discount);
+  const taxableBase = roundCents(subtotal - discountAmount);
+  const vatAmount = roundCents((taxableBase * vatRate) / 100);
+  const total = roundCents(taxableBase + vatAmount);
 
-  return { lines: computed, subtotal, vatAmount, total };
+  return { lines: computed, subtotal, discountAmount, taxableBase, vatAmount, total };
 }
 
 /** "2026-037" — year plus a zero-padded, gapless sequence. */

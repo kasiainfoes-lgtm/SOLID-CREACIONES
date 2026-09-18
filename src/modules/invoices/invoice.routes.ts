@@ -37,6 +37,11 @@ const invoiceInput = z.object({
     unitPrice: z.number()
   })).min(1),
   vatRate: z.number().min(0).max(100),
+  discount: z.object({
+    label: z.string().optional(),
+    type: z.enum(['percentage', 'fixed']),
+    value: z.number().min(0)
+  }).nullish(),
   reference: z.string().optional(),
   orderId: z.string().optional(),
   paymentMethod: z.string().optional(),
@@ -54,6 +59,9 @@ function serialize(invoice: InvoiceWithLines) {
     ...invoice,
     vatRate: invoice.vatRate.toNumber(),
     subtotal: invoice.subtotal.toNumber(),
+    discountValue: invoice.discountValue?.toNumber() ?? null,
+    discountAmount: invoice.discountAmount.toNumber(),
+    taxableBase: invoice.taxableBase.toNumber(),
     vatAmount: invoice.vatAmount.toNumber(),
     total: invoice.total.toNumber(),
     lines: invoice.lines.map(line => ({

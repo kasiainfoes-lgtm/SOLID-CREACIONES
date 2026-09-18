@@ -217,6 +217,14 @@
   .reference { display: grid; grid-template-columns: auto 1fr; gap: 3mm; align-items: baseline; margin-top: 1mm; }
   .reference label { font-size: 9pt; color: var(--paper-soft); white-space: nowrap; }
   .reference input { font-style: italic; }
+  .coupon { display: grid; grid-template-columns: auto 1fr auto 22mm; gap: 3mm; align-items: baseline; margin-top: 1.5mm; }
+  .coupon label { font-size: 9pt; color: var(--paper-soft); white-space: nowrap; }
+  .coupon input, .coupon select {
+    background: transparent; border: 0; border-bottom: 1px dotted var(--paper-line);
+    padding: 1px 2px; width: 100%; font: inherit; color: var(--paper-ink); border-radius: 0;
+  }
+  .coupon select { appearance: auto; }
+  .coupon input:focus, .coupon select:focus { outline: none; border-bottom-color: var(--paper-rule); background: #F4F8F6; }
   .add-line {
     align-self: start; border: 1px dashed var(--paper-line); background: none; color: var(--paper-soft);
     border-radius: 6px; padding: 5px 12px; cursor: pointer; font-size: 9.5pt; font-family: Archivo, sans-serif; font-weight: 600;
@@ -231,6 +239,9 @@
     display: grid; grid-template-columns: 1fr 32mm; gap: 3mm; align-items: baseline;
     padding: 1.6mm 0; border-bottom: 1px solid #E8E6E1;
   }
+  /* Beats ".totals .row"'s own specificity so a hidden row (no discount
+     applied) actually disappears instead of rendering as an empty grid row. */
+  .totals .row[hidden] { display: none; }
   .totals .row span:first-child {
     font-size: 8.5pt; text-transform: uppercase; letter-spacing: .08em;
     font-family: Archivo, sans-serif; font-weight: 600; color: var(--paper-soft);
@@ -283,6 +294,7 @@
     .sheet-foot { align-items: start; }
     table.lines .c-code { width: 18mm; }
     table.lines .c-qty, table.lines .c-price, table.lines .c-total { width: 17mm; }
+    .coupon { grid-template-columns: 1fr; row-gap: 2mm; }
   }
   @media (prefers-reduced-motion: reduce) {
     * { transition: none !important; animation: none !important; }
@@ -299,9 +311,11 @@
       width: 210mm; max-width: none; min-height: 297mm; margin: 0;
       box-shadow: none; border-radius: 0; padding: 16mm 15mm; font-size: 11pt;
     }
-    .sheet input, .sheet textarea { border-bottom-color: transparent !important; background: transparent !important; }
+    .sheet input, .sheet textarea, .sheet select { border-bottom-color: transparent !important; background: transparent !important; }
     .sheet input::placeholder, .sheet textarea::placeholder { color: transparent !important; }
     .del, .add-line { display: none !important; }
+    /* No coupon was applied: don't print an empty discount row. */
+    .coupon.is-empty { display: none !important; }
     table.lines tr, .totals .row { break-inside: avoid; }
     .table-wrap { overflow: visible; }
   }
@@ -410,6 +424,15 @@
           <label for="fReference">Referencia</label>
           <input id="fReference" placeholder="Pedido nº…">
         </div>
+        <div class="coupon" id="couponRow">
+          <label for="fCouponCode">Cupón</label>
+          <input id="fCouponCode" placeholder="Código (opcional), p. ej. BIENVENIDA10" autocomplete="off">
+          <select id="fDiscountType" aria-label="Tipo de descuento">
+            <option value="percentage">% dto.</option>
+            <option value="fixed">€ dto.</option>
+          </select>
+          <input id="fDiscountValue" inputmode="decimal" placeholder="0" aria-label="Valor del descuento">
+        </div>
         <button class="add-line" id="addLineBtn" type="button" style="margin-top:3mm;">+ Añadir línea</button>
       </section>
 
@@ -431,6 +454,8 @@
 
         <div class="totals">
           <div class="row"><span>Bruto</span><span class="val" id="tSubtotal">0,00 €</span></div>
+          <div class="row" id="discountRow" hidden><span id="discountRowLabel">Descuento</span><span class="val" id="tDiscount">−0,00 €</span></div>
+          <div class="row" id="baseRow" hidden><span>Base imponible</span><span class="val" id="tBase">0,00 €</span></div>
           <div class="row vat-row">
             <span>% I.V.A.</span>
             <input id="fVatRate" inputmode="decimal" aria-label="Porcentaje de IVA">
@@ -514,13 +539,27 @@
     return (Math.round(shifted) * (value < 0 ? -1 : 1)) / 100;
   }
 
-  function computeTotals(lines, vatRate) {
+  /**
+   * A coupon/discount is applied to the gross subtotal, before VAT — the
+   * standard order (descuento sobre la base imponible). Clamped so a
+   * mistyped coupon can never push the taxable base negative.
+   */
+  function computeDiscountAmount(subtotal, discount) {
+    if (!discount || !(discount.value > 0)) return 0;
+    if (discount.type === 'fixed') return roundCents(Math.min(Math.max(discount.value, 0), subtotal));
+    const pct = Math.min(Math.max(discount.value, 0), 100);
+    return roundCents((subtotal * pct) / 100);
+  }
+
+  function computeTotals(lines, vatRate, discount) {
     const computed = lines.map((line, index) => ({
       ...line, position: index + 1, total: roundCents(line.quantity * line.unitPrice)
     }));
     const subtotal = roundCents(computed.reduce((sum, l) => sum + l.total, 0));
-    const vatAmount = roundCents((subtotal * vatRate) / 100);
-    return { lines: computed, subtotal, vatAmount, total: roundCents(subtotal + vatAmount) };
+    const discountAmount = computeDiscountAmount(subtotal, discount);
+    const taxableBase = roundCents(subtotal - discountAmount);
+    const vatAmount = roundCents((taxableBase * vatRate) / 100);
+    return { lines: computed, subtotal, discountAmount, taxableBase, vatAmount, total: roundCents(taxableBase + vatAmount) };
   }
 
   const formatNumber = (year, sequence) => year + '-' + String(sequence).padStart(3, '0');
@@ -631,7 +670,12 @@
         return rows.map(row => ({
           id: row.id, number: row.number, year: row.year, sequence: row.sequence,
           issueDate: String(row.issueDate).slice(0, 10), reference: row.reference || '',
-          vatRate: row.vatRate, subtotal: row.subtotal, vatAmount: row.vatAmount, total: row.total,
+          vatRate: row.vatRate,
+          discount: row.discountAmount > 0
+            ? { label: row.discountLabel || '', type: row.discountType || 'percentage', value: row.discountValue }
+            : null,
+          subtotal: row.subtotal, discountAmount: row.discountAmount, taxableBase: row.taxableBase,
+          vatAmount: row.vatAmount, total: row.total,
           paymentMethod: row.paymentMethod || '', bankName: row.bankName || '', bankIban: row.bankIban || '',
           client: {
             name: row.clientName, taxId: row.clientTaxId || '', addressLine1: row.clientAddressLine1 || '',
@@ -646,7 +690,8 @@
           method: 'POST',
           body: JSON.stringify({
             issueDate: invoice.issueDate, number: invoice.number, client,
-            lines: invoice.lines, vatRate: invoice.vatRate, reference: invoice.reference || undefined,
+            lines: invoice.lines, vatRate: invoice.vatRate, discount: invoice.discount || undefined,
+            reference: invoice.reference || undefined,
             paymentMethod: invoice.paymentMethod, bankName: invoice.bankName, bankIban: invoice.bankIban
           })
         });
@@ -789,10 +834,31 @@
     }
   }
 
+  /** Reads the coupon/discount currently typed on the form, or null if unset. */
+  function currentDiscount() {
+    const value = parseAmount($('fDiscountValue').value);
+    if (!(value > 0)) return null;
+    return { label: $('fCouponCode').value.trim(), type: $('fDiscountType').value, value };
+  }
+
   function recalc() {
     const vatRate = parseAmount($('fVatRate').value);
-    const totals = computeTotals(state.lines, vatRate);
+    const discount = currentDiscount();
+    const totals = computeTotals(state.lines, vatRate, discount);
     $('tSubtotal').textContent = money(totals.subtotal);
+
+    const hasDiscount = totals.discountAmount > 0;
+    $('discountRow').hidden = !hasDiscount;
+    $('baseRow').hidden = !hasDiscount;
+    // On screen the coupon fields stay visible so they can be typed into;
+    // only the print stylesheet hides an unused row (see .coupon.is-empty).
+    $('couponRow').classList.toggle('is-empty', !hasDiscount);
+    if (hasDiscount) {
+      $('discountRowLabel').textContent = discount.label ? 'Descuento (' + discount.label + ')' : 'Descuento';
+      $('tDiscount').textContent = '−' + money(totals.discountAmount);
+      $('tBase').textContent = money(totals.taxableBase);
+    }
+
     $('tVat').textContent = money(totals.vatAmount);
     $('tTotal').textContent = money(totals.total);
     [...$('lineBody').querySelectorAll('.line-total')].forEach((cell, index) => {
@@ -877,6 +943,12 @@
     $('fClientCity').value = [client.city, client.province].filter(Boolean).join(' – ') || client.city || '';
   }
 
+  function fillDiscount(discount) {
+    $('fCouponCode').value = (discount && discount.label) || '';
+    $('fDiscountType').value = (discount && discount.type) || 'percentage';
+    $('fDiscountValue').value = discount && discount.value ? String(discount.value).replace('.', ',') : '';
+  }
+
   function newInvoice(seed) {
     const year = new Date().getFullYear();
     const numbering = nextNumberFrom(state.invoices, year);
@@ -893,6 +965,7 @@
     $('fIban').value = (seed && seed.bankIban) || state.issuer.bankIban || '';
     $('fClientPick').value = '';
     fillClient((seed && seed.client) || {});
+    fillDiscount(seed && seed.discount);
 
     renderLines(); recalc(); renderInvoiceList();
     state.touched = false;
@@ -914,6 +987,7 @@
     $('fBank').value = invoice.bankName || '';
     $('fIban').value = invoice.bankIban || '';
     fillClient(invoice.client || {});
+    fillDiscount(invoice.discount);
 
     renderLines(); recalc(); renderInvoiceList();
     $('duplicateBtn').disabled = false;
@@ -953,7 +1027,10 @@
       issueDate: esToIso($('fDate').value) || todayISO(),
       reference: $('fReference').value.trim(),
       vatRate: parseAmount($('fVatRate').value),
+      discount: currentDiscount(),
       subtotal: totals.subtotal,
+      discountAmount: totals.discountAmount,
+      taxableBase: totals.taxableBase,
       vatAmount: totals.vatAmount,
       total: totals.total,
       paymentMethod: $('fPayment').value.trim(),
@@ -996,7 +1073,9 @@
       const bucket = quarters[Math.floor((month - 1) / 3)];
       if (!bucket) continue;
       bucket.count += 1;
-      bucket.subtotal = roundCents(bucket.subtotal + invoice.subtotal);
+      // "Base": the taxable base after any coupon, which is what the
+      // modelo 303 wants — not the gross subtotal before the discount.
+      bucket.subtotal = roundCents(bucket.subtotal + (invoice.taxableBase ?? invoice.subtotal));
       bucket.vatAmount = roundCents(bucket.vatAmount + invoice.vatAmount);
       bucket.total = roundCents(bucket.total + invoice.total);
     }
@@ -1036,13 +1115,15 @@
   }
 
   function invoicesCsv() {
-    const header = ['Numero', 'Fecha', 'Cliente', 'CIF', 'Base', 'TipoIVA', 'CuotaIVA', 'Total'];
+    const header = ['Numero', 'Fecha', 'Cliente', 'CIF', 'Bruto', 'Descuento', 'Base', 'TipoIVA', 'CuotaIVA', 'Total'];
     const rows = [...state.invoices]
       .sort((a, b) => (a.year - b.year) || (a.sequence - b.sequence))
       .map(invoice => [
         invoice.number, invoice.issueDate, (invoice.client && invoice.client.name) || '',
         (invoice.client && invoice.client.taxId) || '',
-        euro.format(invoice.subtotal), invoice.vatRate, euro.format(invoice.vatAmount), euro.format(invoice.total)
+        euro.format(invoice.subtotal), euro.format(invoice.discountAmount || 0),
+        euro.format(invoice.taxableBase ?? invoice.subtotal),
+        invoice.vatRate, euro.format(invoice.vatAmount), euro.format(invoice.total)
       ]);
     return [header, ...rows]
       .map(row => row.map(cell => '"' + String(cell).replace(/"/g, '""') + '"').join(';'))
@@ -1191,6 +1272,9 @@
   $('summaryClose').addEventListener('click', () => $('summaryDialog').close());
   $('exportBtn').addEventListener('click', exportCsv);
   $('fVatRate').addEventListener('input', () => { recalc(); markDirty(); });
+  $('fDiscountValue').addEventListener('input', () => { recalc(); markDirty(); });
+  $('fDiscountType').addEventListener('change', () => { recalc(); markDirty(); });
+  $('fCouponCode').addEventListener('input', () => { recalc(); markDirty(); });
   ['fNumber', 'fDate', 'fReference', 'fPayment', 'fBank', 'fIban', 'fClientName', 'fClientTaxId', 'fClientAddress1', 'fClientPostal', 'fClientCity']
     .forEach(id => $(id).addEventListener('input', markDirty));
 

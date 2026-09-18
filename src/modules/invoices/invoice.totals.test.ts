@@ -10,6 +10,8 @@ describe('computeTotals', () => {
       21
     );
     expect(result.subtotal).toBe(430);
+    expect(result.discountAmount).toBe(0);
+    expect(result.taxableBase).toBe(430);
     expect(result.vatAmount).toBe(90.3);
     expect(result.total).toBe(520.3);
   });
@@ -40,6 +42,50 @@ describe('computeTotals', () => {
       21
     );
     expect(result.lines.map(l => l.position)).toEqual([1, 2]);
+  });
+});
+
+describe('computeTotals con cupón/descuento', () => {
+  // Same 2026-037 invoice as above (2 x 215,00 €, 21% IVA), now with a
+  // client's coupon applied — the case that prompted this feature.
+  const lines = [{ description: 'ENCIMERAS DE 80 X 37', quantity: 2, unitPrice: 215 }];
+
+  it('applies a percentage coupon before VAT (Bruto -> Descuento -> Base imponible -> IVA)', () => {
+    const result = computeTotals(lines, 21, { label: 'BIENVENIDA10', type: 'percentage', value: 10 });
+    expect(result.subtotal).toBe(430);
+    expect(result.discountAmount).toBe(43); // 10% of 430
+    expect(result.taxableBase).toBe(387);
+    expect(result.vatAmount).toBe(81.27); // 21% of 387, not of 430
+    expect(result.total).toBe(468.27);
+  });
+
+  it('applies a fixed-amount coupon in euros', () => {
+    const result = computeTotals(lines, 21, { type: 'fixed', value: 30 });
+    expect(result.discountAmount).toBe(30);
+    expect(result.taxableBase).toBe(400);
+    expect(result.vatAmount).toBe(84);
+    expect(result.total).toBe(484);
+  });
+
+  it('clamps a coupon so the taxable base never goes negative', () => {
+    const result = computeTotals(lines, 21, { type: 'fixed', value: 999 });
+    expect(result.discountAmount).toBe(430);
+    expect(result.taxableBase).toBe(0);
+    expect(result.vatAmount).toBe(0);
+    expect(result.total).toBe(0);
+  });
+
+  it('clamps a percentage coupon at 100%', () => {
+    const result = computeTotals(lines, 21, { type: 'percentage', value: 150 });
+    expect(result.discountAmount).toBe(430);
+    expect(result.total).toBe(0);
+  });
+
+  it('ignores a zero, negative or missing discount', () => {
+    const base = computeTotals(lines, 21);
+    expect(computeTotals(lines, 21, null)).toEqual(base);
+    expect(computeTotals(lines, 21, { type: 'fixed', value: 0 })).toEqual(base);
+    expect(computeTotals(lines, 21, { type: 'fixed', value: -10 })).toEqual(base);
   });
 });
 
