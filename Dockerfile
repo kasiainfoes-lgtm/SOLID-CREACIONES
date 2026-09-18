@@ -19,5 +19,8 @@ COPY --from=build /app/dist ./dist
 COPY prisma ./prisma
 # The invoicing UI is a plain HTML file served by the app at /facturas.
 COPY public ./public
+# Admin helper scripts (e.g. creating/resetting a user's login), run by hand
+# with `docker compose exec api node scripts/<name>.mjs ...`.
+COPY scripts ./scripts
 EXPOSE 3000
 CMD ["sh", "-c", "npx prisma migrate deploy && node dist/src/server.js"]
