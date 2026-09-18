@@ -327,7 +327,7 @@
     }
     .sheet input, .sheet textarea, .sheet select { border-bottom-color: transparent !important; background: transparent !important; }
     .sheet input::placeholder, .sheet textarea::placeholder { color: transparent !important; }
-    .del, .add-line, .vat-toggle { display: none !important; }
+    .del, .add-line, .vat-toggle, #clientPickField { display: none !important; }
     /* No coupon was applied: don't print an empty discount row. */
     .coupon.is-empty { display: none !important; }
     table.lines tr, .totals .row { break-inside: avoid; }
@@ -395,7 +395,7 @@
             <label for="fDate">Fecha</label>
             <input id="fDate" inputmode="numeric" maxlength="10" placeholder="dd/mm/aaaa">
           </div>
-          <div class="field">
+          <div class="field" id="clientPickField">
             <label for="fClientPick">Cliente guardado</label>
             <input id="fClientPick" list="clientOptions" placeholder="Escribe para buscar…" autocomplete="off">
             <datalist id="clientOptions"></datalist>
