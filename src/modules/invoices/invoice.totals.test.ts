@@ -89,6 +89,44 @@ describe('computeTotals con cupón/descuento', () => {
   });
 });
 
+describe('computeTotals con IVA incluido en los precios (pedidos de la tienda)', () => {
+  it('reproduces a WooCommerce order: extracts VAT from a fixed total instead of adding it', () => {
+    // Subtotal de artículos: 592€, Cupón(es): -59€, Total del pedido: 533€.
+    // The 533€ is what the customer paid — it must not move.
+    const result = computeTotals(
+      [{ description: 'Pedido tienda online', quantity: 1, unitPrice: 592 }],
+      21,
+      { type: 'fixed', value: 59 },
+      'included'
+    );
+    expect(result.subtotal).toBe(592);
+    expect(result.discountAmount).toBe(59);
+    expect(result.total).toBe(533); // unchanged: this is what was actually charged
+    expect(result.taxableBase).toBe(440.5);
+    expect(result.vatAmount).toBe(92.5);
+    expect(roundCents(result.taxableBase + result.vatAmount)).toBe(result.total);
+  });
+
+  it('defaults to "excluded" (VAT added on top) when no mode is given, unchanged from before', () => {
+    const withoutMode = computeTotals([{ description: 'X', quantity: 1, unitPrice: 100 }], 21);
+    const explicitlyExcluded = computeTotals([{ description: 'X', quantity: 1, unitPrice: 100 }], 21, null, 'excluded');
+    expect(withoutMode).toEqual(explicitlyExcluded);
+    expect(withoutMode.total).toBe(121); // 100 + 21% on top
+  });
+
+  it('combines a percentage coupon with VAT-inclusive prices', () => {
+    const result = computeTotals(
+      [{ description: 'Encimera de venta directa', quantity: 1, unitPrice: 200 }],
+      21,
+      { type: 'percentage', value: 10 },
+      'included'
+    );
+    expect(result.discountAmount).toBe(20); // 10% of 200
+    expect(result.total).toBe(180); // 200 - 20, unchanged by the VAT split
+    expect(roundCents(result.taxableBase * 1.21)).toBeCloseTo(result.total, 1);
+  });
+});
+
 describe('roundCents', () => {
   it('rounds halves up, including negatives (abonos)', () => {
     expect(roundCents(1.005)).toBe(1.01);

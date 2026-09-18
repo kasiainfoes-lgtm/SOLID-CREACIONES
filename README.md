@@ -224,6 +224,13 @@ Qué hace sola:
   y como se hace en una factura real. Un descuento mal escrito nunca puede dejar la
   base en negativo — se limita automáticamente. La fila solo aparece impresa cuando
   hay descuento; en una factura normal no se ve.
+- **IVA incluido en los precios**: una casilla ("Los precios de las líneas ya
+  incluyen el IVA") para cuando se copia un pedido de la tienda online, donde el
+  precio que ve la clienta ya lleva el IVA dentro. Marcada, el total que escribas
+  **no se mueve** (es lo que la clienta pagó de verdad): la base imponible y la
+  cuota de IVA se calculan hacia atrás a partir de ese total, en vez de sumarle IVA
+  encima. Sin marcar (por defecto) funciona como una factura normal a empresa: el
+  IVA se añade sobre la base.
 - **Duplica** una factura anterior con el número siguiente, para clientes que se
   repiten cada mes.
 - **Resumen de IVA por trimestre** y **exportación a CSV** para la gestoría.

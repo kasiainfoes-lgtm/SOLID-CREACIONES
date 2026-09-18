@@ -225,6 +225,12 @@
   }
   .coupon select { appearance: auto; }
   .coupon input:focus, .coupon select:focus { outline: none; border-bottom-color: var(--paper-rule); background: #F4F8F6; }
+  .vat-mode {
+    display: flex; align-items: baseline; gap: 2mm; margin-top: 2mm;
+    font-size: 8.5pt; color: var(--paper-soft);
+  }
+  .vat-mode input[type="checkbox"] { width: auto; accent-color: var(--paper-rule); }
+  .vat-mode label { cursor: pointer; }
   .add-line {
     align-self: start; border: 1px dashed var(--paper-line); background: none; color: var(--paper-soft);
     border-radius: 6px; padding: 5px 12px; cursor: pointer; font-size: 9.5pt; font-family: Archivo, sans-serif; font-weight: 600;
@@ -313,7 +319,7 @@
     }
     .sheet input, .sheet textarea, .sheet select { border-bottom-color: transparent !important; background: transparent !important; }
     .sheet input::placeholder, .sheet textarea::placeholder { color: transparent !important; }
-    .del, .add-line { display: none !important; }
+    .del, .add-line, .vat-mode { display: none !important; }
     /* No coupon was applied: don't print an empty discount row. */
     .coupon.is-empty { display: none !important; }
     table.lines tr, .totals .row { break-inside: avoid; }
@@ -433,6 +439,10 @@
           </select>
           <input id="fDiscountValue" inputmode="decimal" placeholder="0" aria-label="Valor del descuento">
         </div>
+        <div class="vat-mode">
+          <input type="checkbox" id="fVatIncluded">
+          <label for="fVatIncluded">Los precios de las líneas ya incluyen el IVA (pedido de la tienda online) — el IVA se resta del total, no se suma</label>
+        </div>
         <button class="add-line" id="addLineBtn" type="button" style="margin-top:3mm;">+ Añadir línea</button>
       </section>
 
@@ -457,7 +467,7 @@
           <div class="row" id="discountRow" hidden><span id="discountRowLabel">Descuento</span><span class="val" id="tDiscount">−0,00 €</span></div>
           <div class="row" id="baseRow" hidden><span>Base imponible</span><span class="val" id="tBase">0,00 €</span></div>
           <div class="row vat-row">
-            <span>% I.V.A.</span>
+            <span id="vatRowLabel">% I.V.A.</span>
             <input id="fVatRate" inputmode="decimal" aria-label="Porcentaje de IVA">
             <span class="val" id="tVat">0,00 €</span>
           </div>
@@ -551,15 +561,30 @@
     return roundCents((subtotal * pct) / 100);
   }
 
-  function computeTotals(lines, vatRate, discount) {
+  /**
+   * vatMode 'excluded' (default): line prices don't carry VAT, added on top
+   * to reach the total. 'included': line prices already carry VAT (a web
+   * shop order) — the total is fixed and VAT is extracted from inside it.
+   */
+  function computeTotals(lines, vatRate, discount, vatMode) {
     const computed = lines.map((line, index) => ({
       ...line, position: index + 1, total: roundCents(line.quantity * line.unitPrice)
     }));
     const subtotal = roundCents(computed.reduce((sum, l) => sum + l.total, 0));
     const discountAmount = computeDiscountAmount(subtotal, discount);
-    const taxableBase = roundCents(subtotal - discountAmount);
+    const afterDiscount = roundCents(subtotal - discountAmount);
+
+    if (vatMode === 'included') {
+      const total = afterDiscount;
+      const taxableBase = roundCents(total / (1 + vatRate / 100));
+      const vatAmount = roundCents(total - taxableBase);
+      return { lines: computed, subtotal, discountAmount, taxableBase, vatAmount, total, vatMode };
+    }
+
+    const taxableBase = afterDiscount;
     const vatAmount = roundCents((taxableBase * vatRate) / 100);
-    return { lines: computed, subtotal, discountAmount, taxableBase, vatAmount, total: roundCents(taxableBase + vatAmount) };
+    const total = roundCents(taxableBase + vatAmount);
+    return { lines: computed, subtotal, discountAmount, taxableBase, vatAmount, total, vatMode: 'excluded' };
   }
 
   const formatNumber = (year, sequence) => year + '-' + String(sequence).padStart(3, '0');
@@ -671,6 +696,7 @@
           id: row.id, number: row.number, year: row.year, sequence: row.sequence,
           issueDate: String(row.issueDate).slice(0, 10), reference: row.reference || '',
           vatRate: row.vatRate,
+          vatMode: row.pricesIncludeVat ? 'included' : 'excluded',
           discount: row.discountAmount > 0
             ? { label: row.discountLabel || '', type: row.discountType || 'percentage', value: row.discountValue }
             : null,
@@ -691,6 +717,7 @@
           body: JSON.stringify({
             issueDate: invoice.issueDate, number: invoice.number, client,
             lines: invoice.lines, vatRate: invoice.vatRate, discount: invoice.discount || undefined,
+            vatMode: invoice.vatMode || undefined,
             reference: invoice.reference || undefined,
             paymentMethod: invoice.paymentMethod, bankName: invoice.bankName, bankIban: invoice.bankIban
           })
@@ -841,23 +868,35 @@
     return { label: $('fCouponCode').value.trim(), type: $('fDiscountType').value, value };
   }
 
+  function currentVatMode() {
+    return $('fVatIncluded').checked ? 'included' : 'excluded';
+  }
+
   function recalc() {
     const vatRate = parseAmount($('fVatRate').value);
     const discount = currentDiscount();
-    const totals = computeTotals(state.lines, vatRate, discount);
+    const vatMode = currentVatMode();
+    const totals = computeTotals(state.lines, vatRate, discount, vatMode);
     $('tSubtotal').textContent = money(totals.subtotal);
 
     const hasDiscount = totals.discountAmount > 0;
+    // With VAT-inclusive prices the base always differs from the bruto (it's
+    // extracted from it), even with no coupon applied — so that row shows
+    // whenever either is true, not only when there's a discount.
+    const showBreakdown = hasDiscount || vatMode === 'included';
     $('discountRow').hidden = !hasDiscount;
-    $('baseRow').hidden = !hasDiscount;
+    $('baseRow').hidden = !showBreakdown;
     // On screen the coupon fields stay visible so they can be typed into;
     // only the print stylesheet hides an unused row (see .coupon.is-empty).
     $('couponRow').classList.toggle('is-empty', !hasDiscount);
     if (hasDiscount) {
       $('discountRowLabel').textContent = discount.label ? 'Descuento (' + discount.label + ')' : 'Descuento';
       $('tDiscount').textContent = '−' + money(totals.discountAmount);
+    }
+    if (showBreakdown) {
       $('tBase').textContent = money(totals.taxableBase);
     }
+    $('vatRowLabel').textContent = vatMode === 'included' ? '% I.V.A. (incluido)' : '% I.V.A.';
 
     $('tVat').textContent = money(totals.vatAmount);
     $('tTotal').textContent = money(totals.total);
@@ -949,6 +988,10 @@
     $('fDiscountValue').value = discount && discount.value ? String(discount.value).replace('.', ',') : '';
   }
 
+  function fillVatMode(vatMode) {
+    $('fVatIncluded').checked = vatMode === 'included';
+  }
+
   function newInvoice(seed) {
     const year = new Date().getFullYear();
     const numbering = nextNumberFrom(state.invoices, year);
@@ -966,6 +1009,7 @@
     $('fClientPick').value = '';
     fillClient((seed && seed.client) || {});
     fillDiscount(seed && seed.discount);
+    fillVatMode(seed && seed.vatMode);
 
     renderLines(); recalc(); renderInvoiceList();
     state.touched = false;
@@ -988,6 +1032,7 @@
     $('fIban').value = invoice.bankIban || '';
     fillClient(invoice.client || {});
     fillDiscount(invoice.discount);
+    fillVatMode(invoice.vatMode);
 
     renderLines(); recalc(); renderInvoiceList();
     $('duplicateBtn').disabled = false;
@@ -1028,6 +1073,7 @@
       reference: $('fReference').value.trim(),
       vatRate: parseAmount($('fVatRate').value),
       discount: currentDiscount(),
+      vatMode: currentVatMode(),
       subtotal: totals.subtotal,
       discountAmount: totals.discountAmount,
       taxableBase: totals.taxableBase,
@@ -1275,6 +1321,7 @@
   $('fDiscountValue').addEventListener('input', () => { recalc(); markDirty(); });
   $('fDiscountType').addEventListener('change', () => { recalc(); markDirty(); });
   $('fCouponCode').addEventListener('input', () => { recalc(); markDirty(); });
+  $('fVatIncluded').addEventListener('change', () => { recalc(); markDirty(); });
   ['fNumber', 'fDate', 'fReference', 'fPayment', 'fBank', 'fIban', 'fClientName', 'fClientTaxId', 'fClientAddress1', 'fClientPostal', 'fClientCity']
     .forEach(id => $(id).addEventListener('input', markDirty));
 

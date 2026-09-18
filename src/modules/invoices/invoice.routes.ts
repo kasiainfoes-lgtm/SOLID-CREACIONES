@@ -42,6 +42,10 @@ const invoiceInput = z.object({
     type: z.enum(['percentage', 'fixed']),
     value: z.number().min(0)
   }).nullish(),
+  // "excluded" (default): line prices don't carry VAT, it's added on top.
+  // "included": line prices already carry VAT (a web shop order) — the total
+  // stays fixed and VAT is extracted from inside it instead.
+  vatMode: z.enum(['excluded', 'included']).optional(),
   reference: z.string().optional(),
   orderId: z.string().optional(),
   paymentMethod: z.string().optional(),

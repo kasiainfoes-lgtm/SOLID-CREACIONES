@@ -1,7 +1,13 @@
 import { Prisma, type InvoiceStatus } from '@prisma/client';
 import { INVOICE_ISSUER } from '../../config/company.js';
 import { prisma } from '../../lib/prisma.js';
-import { computeTotals, formatInvoiceNumber, type InvoiceDiscountInput, type InvoiceLineInput } from './invoice.totals.js';
+import {
+  computeTotals,
+  formatInvoiceNumber,
+  type InvoiceDiscountInput,
+  type InvoiceLineInput,
+  type VatMode
+} from './invoice.totals.js';
 
 export type CreateInvoiceInput = {
   issueDate: Date;
@@ -21,6 +27,8 @@ export type CreateInvoiceInput = {
   vatRate: number;
   /** Coupon/discount applied to this invoice, e.g. a client's promo code. */
   discount?: InvoiceDiscountInput | null;
+  /** "excluded" (default) adds VAT on top; "included" extracts it from a fixed total. */
+  vatMode?: VatMode;
   reference?: string;
   orderId?: string;
   paymentMethod?: string;
@@ -70,7 +78,7 @@ async function resolveClient(input: CreateInvoiceInput) {
 export async function createInvoice(input: CreateInvoiceInput) {
   if (input.lines.length === 0) throw new Error('An invoice needs at least one line');
 
-  const totals = computeTotals(input.lines, input.vatRate, input.discount);
+  const totals = computeTotals(input.lines, input.vatRate, input.discount, input.vatMode);
   const client = await resolveClient(input);
   const year = input.issueDate.getFullYear();
 
@@ -105,6 +113,7 @@ export async function createInvoice(input: CreateInvoiceInput) {
           discountValue: input.discount?.value != null ? new Prisma.Decimal(input.discount.value) : null,
           discountAmount: new Prisma.Decimal(totals.discountAmount),
           vatRate: new Prisma.Decimal(input.vatRate),
+          pricesIncludeVat: totals.vatMode === 'included',
           subtotal: new Prisma.Decimal(totals.subtotal),
           taxableBase: new Prisma.Decimal(totals.taxableBase),
           vatAmount: new Prisma.Decimal(totals.vatAmount),
