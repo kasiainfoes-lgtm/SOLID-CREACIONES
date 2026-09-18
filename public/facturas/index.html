@@ -225,12 +225,20 @@
   }
   .coupon select { appearance: auto; }
   .coupon input:focus, .coupon select:focus { outline: none; border-bottom-color: var(--paper-rule); background: #F4F8F6; }
-  .vat-mode {
-    display: flex; align-items: baseline; gap: 2mm; margin-top: 2mm;
-    font-size: 8.5pt; color: var(--paper-soft);
+  /* A big, hard-to-miss switch — the small checkbox this replaced was too
+     easy to forget, and forgetting it silently overcharges the VAT. It sits
+     right on top of the totals it controls, not tucked away near the lines. */
+  .vat-toggle { display: grid; gap: 1.5mm; margin-bottom: 2mm; }
+  .vat-toggle-label { font-size: 8pt; text-transform: uppercase; letter-spacing: .08em; color: var(--paper-soft); font-family: Archivo, sans-serif; font-weight: 600; }
+  .vat-toggle-buttons { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5mm; }
+  .vat-toggle-btn {
+    font: inherit; font-family: Archivo, sans-serif; font-weight: 600; font-size: 8.5pt;
+    padding: 2.5mm 2mm; border-radius: 5px; border: 1.5px solid var(--paper-line);
+    background: #fff; color: var(--paper-soft); cursor: pointer; line-height: 1.25;
   }
-  .vat-mode input[type="checkbox"] { width: auto; accent-color: var(--paper-rule); }
-  .vat-mode label { cursor: pointer; }
+  .vat-toggle-btn[aria-pressed="true"] { background: var(--paper-rule); border-color: var(--paper-rule); color: #fff; }
+  .vat-toggle-btn:focus-visible { outline: 2px solid var(--paper-rule); outline-offset: 1px; }
+  .vat-toggle-hint { font-size: 8pt; font-style: italic; color: var(--paper-soft); }
   .add-line {
     align-self: start; border: 1px dashed var(--paper-line); background: none; color: var(--paper-soft);
     border-radius: 6px; padding: 5px 12px; cursor: pointer; font-size: 9.5pt; font-family: Archivo, sans-serif; font-weight: 600;
@@ -319,7 +327,7 @@
     }
     .sheet input, .sheet textarea, .sheet select { border-bottom-color: transparent !important; background: transparent !important; }
     .sheet input::placeholder, .sheet textarea::placeholder { color: transparent !important; }
-    .del, .add-line, .vat-mode { display: none !important; }
+    .del, .add-line, .vat-toggle { display: none !important; }
     /* No coupon was applied: don't print an empty discount row. */
     .coupon.is-empty { display: none !important; }
     table.lines tr, .totals .row { break-inside: avoid; }
@@ -439,10 +447,6 @@
           </select>
           <input id="fDiscountValue" inputmode="decimal" placeholder="0" aria-label="Valor del descuento">
         </div>
-        <div class="vat-mode">
-          <input type="checkbox" id="fVatIncluded">
-          <label for="fVatIncluded">Los precios de las líneas ya incluyen el IVA (pedido de la tienda online) — el IVA se resta del total, no se suma</label>
-        </div>
         <button class="add-line" id="addLineBtn" type="button" style="margin-top:3mm;">+ Añadir línea</button>
       </section>
 
@@ -463,6 +467,14 @@
         </div>
 
         <div class="totals">
+          <div class="vat-toggle" id="vatToggle" data-mode="excluded">
+            <span class="vat-toggle-label">¿Los precios de arriba ya incluyen el IVA?</span>
+            <div class="vat-toggle-buttons" role="group" aria-label="Cómo calcular el IVA de esta factura">
+              <button type="button" class="vat-toggle-btn" id="vatModeExcludedBtn" aria-pressed="true">No — se suma el IVA</button>
+              <button type="button" class="vat-toggle-btn" id="vatModeIncludedBtn" aria-pressed="false">Sí — pedido de la tienda</button>
+            </div>
+            <span class="vat-toggle-hint" id="vatToggleHint">El IVA se calcula sobre el bruto y se suma al total.</span>
+          </div>
           <div class="row"><span>Bruto</span><span class="val" id="tSubtotal">0,00 €</span></div>
           <div class="row" id="discountRow" hidden><span id="discountRowLabel">Descuento</span><span class="val" id="tDiscount">−0,00 €</span></div>
           <div class="row" id="baseRow" hidden><span>Base imponible</span><span class="val" id="tBase">0,00 €</span></div>
@@ -869,7 +881,19 @@
   }
 
   function currentVatMode() {
-    return $('fVatIncluded').checked ? 'included' : 'excluded';
+    return $('vatToggle').dataset.mode === 'included' ? 'included' : 'excluded';
+  }
+
+  /** Flips the big Sin-IVA/Con-IVA switch — one true "pressed" state, kept
+   * in sync on both buttons and the hint text so it's never ambiguous. */
+  function setVatMode(mode) {
+    const included = mode === 'included';
+    $('vatToggle').dataset.mode = included ? 'included' : 'excluded';
+    $('vatModeExcludedBtn').setAttribute('aria-pressed', String(!included));
+    $('vatModeIncludedBtn').setAttribute('aria-pressed', String(included));
+    $('vatToggleHint').textContent = included
+      ? 'El total no cambia: se calcula qué parte de él es IVA.'
+      : 'El IVA se calcula sobre el bruto y se suma al total.';
   }
 
   function recalc() {
@@ -897,6 +921,9 @@
       $('tBase').textContent = money(totals.taxableBase);
     }
     $('vatRowLabel').textContent = vatMode === 'included' ? '% I.V.A. (incluido)' : '% I.V.A.';
+    $('vatToggleHint').textContent = vatMode === 'included'
+      ? 'El total no cambia: ' + money(totals.total) + '. Se calcula qué parte de él es IVA.'
+      : 'Se suma el IVA sobre el bruto → total ' + money(totals.total) + '.';
 
     $('tVat').textContent = money(totals.vatAmount);
     $('tTotal').textContent = money(totals.total);
@@ -989,7 +1016,7 @@
   }
 
   function fillVatMode(vatMode) {
-    $('fVatIncluded').checked = vatMode === 'included';
+    setVatMode(vatMode === 'included' ? 'included' : 'excluded');
   }
 
   function newInvoice(seed) {
@@ -1321,7 +1348,8 @@
   $('fDiscountValue').addEventListener('input', () => { recalc(); markDirty(); });
   $('fDiscountType').addEventListener('change', () => { recalc(); markDirty(); });
   $('fCouponCode').addEventListener('input', () => { recalc(); markDirty(); });
-  $('fVatIncluded').addEventListener('change', () => { recalc(); markDirty(); });
+  $('vatModeExcludedBtn').addEventListener('click', () => { setVatMode('excluded'); recalc(); markDirty(); });
+  $('vatModeIncludedBtn').addEventListener('click', () => { setVatMode('included'); recalc(); markDirty(); });
   ['fNumber', 'fDate', 'fReference', 'fPayment', 'fBank', 'fIban', 'fClientName', 'fClientTaxId', 'fClientAddress1', 'fClientPostal', 'fClientCity']
     .forEach(id => $(id).addEventListener('input', markDirty));
 
