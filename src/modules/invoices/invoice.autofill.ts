@@ -102,7 +102,18 @@ export class AutofillNotConfiguredError extends Error {
 let client: Anthropic | null = null;
 function getClient(): Anthropic {
   if (!env.ANTHROPIC_API_KEY) throw new AutofillNotConfiguredError();
-  if (!client) client = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY });
+  if (!client) {
+    client = new Anthropic({
+      apiKey: env.ANTHROPIC_API_KEY,
+      // Some API keys aren't bound to a single workspace and need this
+      // header on every request, or the API rejects with 400
+      // invalid_request_error ("not scoped to a workspace"). Omitted
+      // (undefined) when unset — a key that IS scoped doesn't need it.
+      defaultHeaders: env.ANTHROPIC_WORKSPACE_ID
+        ? { 'anthropic-workspace-id': env.ANTHROPIC_WORKSPACE_ID }
+        : undefined
+    });
+  }
   return client;
 }
 

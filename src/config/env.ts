@@ -67,6 +67,11 @@ const schema = z.object({
   // texto pegado (pedido, WhatsApp...) con la API de Claude. Sin esta clave,
   // el botón simplemente no aparece — el resto de la app funciona igual.
   ANTHROPIC_API_KEY: z.string().optional().default(''),
+  // Only needed if Anthropic rejects the key above with "not scoped to a
+  // workspace" (400 invalid_request_error). Find it in console.anthropic.com
+  // under the workspace's settings — looks like "wrkspc_...". Leave empty
+  // otherwise.
+  ANTHROPIC_WORKSPACE_ID: z.string().optional().default(''),
 
   // --- Factory notification -------------------------------------------
   // WhatsApp has no official API access yet, so notifications go out over
