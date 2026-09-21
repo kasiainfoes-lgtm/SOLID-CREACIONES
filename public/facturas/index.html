@@ -824,7 +824,19 @@
   function resizeLineTextareas() {
     for (const textarea of $('lineBody').querySelectorAll('textarea')) autoGrow(textarea);
   }
-  window.addEventListener('beforeprint', resizeLineTextareas);
+
+  // The browser suggests the page's <title> as the "Guardar como PDF"
+  // filename — swap in the invoice number just for that moment, so every
+  // invoice downloads as e.g. "FRA-2026-038.pdf" instead of always the
+  // same generic name. Restored right after so the browser tab itself
+  // still reads "Facturas Innova" the rest of the time.
+  const BASE_TITLE = document.title;
+  function printFileTitle() {
+    const number = $('fNumber').value.trim();
+    document.title = number ? 'FRA-' + number : BASE_TITLE;
+  }
+  window.addEventListener('beforeprint', () => { resizeLineTextareas(); printFileTitle(); });
+  window.addEventListener('afterprint', () => { document.title = BASE_TITLE; });
 
   function renderLines() {
     const body = $('lineBody');
@@ -1400,7 +1412,7 @@
   $('addLineBtn').addEventListener('click', addLine);
   $('saveBtn').addEventListener('click', save);
   $('newBtn').addEventListener('click', () => newInvoice());
-  $('printBtn').addEventListener('click', () => { resizeLineTextareas(); window.print(); });
+  $('printBtn').addEventListener('click', () => window.print()); // beforeprint handles the rest
   $('duplicateBtn').addEventListener('click', () => {
     const source = state.invoices.find(inv => inv.id === state.currentId);
     if (source) { newInvoice(source); toast('Copia lista con el número siguiente'); }
