@@ -279,7 +279,12 @@
   .dialog-body h2 { margin: 0; font-family: Archivo, sans-serif; font-size: 17px; }
   .dialog-body p { margin: 0; color: var(--ink-soft); font-size: 14px; }
   .dialog-body label { display: grid; gap: 4px; font-size: 13px; color: var(--ink-soft); }
-  .dialog-body input { padding: 9px 11px; border: 1px solid var(--line); border-radius: 8px; background: var(--ground); }
+  .dialog-body input, .dialog-body textarea {
+    padding: 9px 11px; border: 1px solid var(--line); border-radius: 8px;
+    background: var(--ground); font: inherit; color: inherit; resize: vertical;
+  }
+  .btn-ai { border-color: var(--accent); color: var(--accent); }
+  .btn-ai:hover { background: var(--accent-wash); }
   .summary-table { width: 100%; border-collapse: collapse; font-size: 14px; }
   .summary-table th, .summary-table td { padding: 7px 8px; border-bottom: 1px solid var(--line-soft); text-align: right; }
   .summary-table th:first-child, .summary-table td:first-child { text-align: left; }
@@ -341,6 +346,7 @@
     <div class="brand"><b>Facturas</b><span id="brandIssuer">Innova</span></div>
 
     <div class="actions">
+      <button class="btn btn-ai" id="autofillBtn" type="button" hidden>✨ Rellenar con IA</button>
       <button class="btn btn-primary" id="saveBtn" type="button">Guardar factura</button>
       <div class="btn-row">
         <button class="btn" id="printBtn" type="button">Imprimir / PDF</button>
@@ -503,6 +509,20 @@
   </form>
 </dialog>
 
+<dialog id="autofillDialog">
+  <form method="dialog" class="dialog-body" id="autofillForm">
+    <h2>Rellenar con IA</h2>
+    <p>Pega el texto que tengas del pedido — un mensaje de WhatsApp, un email, el resumen de la tienda — y se rellenan solos el cliente, las líneas y el descuento. Tú revisas los números y guardas cuando estés conforme.</p>
+    <label for="autofillText">Texto del pedido</label>
+    <textarea id="autofillText" rows="9" placeholder="LEUCAN SL, Paseo de la Castellana 125, 28046 Madrid, CIF B28374445. Contenedor de ducha lineal Solid Surface - 02, Atornillar x4. Subtotal: 592€. Cupón: -59€. Total: 533€."></textarea>
+    <p class="err" id="autofillError" hidden></p>
+    <div class="btn-row">
+      <button class="btn btn-ghost" type="button" id="autofillCancel">Cancelar</button>
+      <button class="btn btn-primary" id="autofillSubmit" type="submit">Rellenar factura</button>
+    </div>
+  </form>
+</dialog>
+
 <dialog id="summaryDialog">
   <div class="dialog-body">
     <h2>Resumen de IVA <span id="summaryYear"></span></h2>
@@ -641,6 +661,7 @@
   const LocalStore = {
     mode: 'local',
     label: 'Guardado en este navegador',
+    aiAvailable: () => false, // "Rellenar con IA" needs the real backend, not just the browser.
     async issuer() { return { ...DEFAULT_ISSUER, ...(readLocal().issuer || {}) }; },
     async saveIssuer(issuer) { writeLocal({ issuer }); },
     async invoices() { return readLocal().invoices || []; },
@@ -665,6 +686,7 @@
     return {
       mode: 'cloud',
       label: 'Guardado en la nube (compartido)',
+      aiAvailable: () => false,
       async issuer() {
         const snapshot = await db.doc('settings/issuer').get();
         return { ...DEFAULT_ISSUER, ...(snapshot.exists ? snapshot.data() : {}) };
@@ -697,11 +719,18 @@
       if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || 'Error ' + res.status);
       return res.json();
     };
+    let aiAvailable = false;
     return {
       mode: 'api',
       label: 'Guardado en el servidor',
-      async issuer() { return { ...DEFAULT_ISSUER, ...(await call('/invoices/settings')).issuer }; },
+      aiAvailable: () => aiAvailable,
+      async issuer() {
+        const data = await call('/invoices/settings');
+        aiAvailable = Boolean(data.aiAvailable);
+        return { ...DEFAULT_ISSUER, ...data.issuer };
+      },
       async saveIssuer() { /* the issuer lives in the server's .env */ },
+      async autofill(text) { return call('/invoices/autofill', { method: 'POST', body: JSON.stringify({ text }) }); },
       async invoices() {
         const rows = await call('/invoices?take=200');
         return rows.map(row => ({
@@ -1032,6 +1061,22 @@
     setVatMode(vatMode === 'included' ? 'included' : 'excluded');
   }
 
+  /** Fills the open invoice from the AI's extraction of pasted text. Numbers
+   * are recalculated by the app's own calculator right after — the model
+   * never supplies a total, only the raw client/line/discount data. */
+  function applyAutofillResult(result) {
+    state.lines = result.lines && result.lines.length
+      ? result.lines.map(l => ({ code: l.code || '', description: l.description || '', quantity: l.quantity, unitPrice: l.unitPrice }))
+      : [blankLine()];
+    fillClient(result.client || {});
+    $('fReference').value = result.reference || '';
+    fillDiscount(result.discount);
+    fillVatMode(result.vatMode);
+    $('fVatRate').value = String(result.vatRate ?? state.issuer.defaultVatRate).replace('.', ',');
+    if (result.paymentMethod) $('fPayment').value = result.paymentMethod;
+    renderLines(); recalc(); markDirty();
+  }
+
   function newInvoice(seed) {
     const year = new Date().getFullYear();
     const numbering = nextNumberFrom(state.invoices, year);
@@ -1338,6 +1383,7 @@
 
     renderIssuer();
     renderClientOptions();
+    $('autofillBtn').hidden = !(state.store.aiAvailable && state.store.aiAvailable());
     // Re-number against whatever was stored, unless the boss started typing
     // while the data was still loading.
     if (state.touched) { renderInvoiceList(); } else { newInvoice(); }
@@ -1359,6 +1405,34 @@
   $('search').addEventListener('input', renderInvoiceList);
   $('summaryBtn').addEventListener('click', showSummary);
   $('summaryClose').addEventListener('click', () => $('summaryDialog').close());
+
+  $('autofillBtn').addEventListener('click', () => {
+    $('autofillError').hidden = true;
+    $('autofillText').value = '';
+    $('autofillDialog').showModal();
+    $('autofillText').focus();
+  });
+  $('autofillCancel').addEventListener('click', () => $('autofillDialog').close());
+  $('autofillForm').addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const text = $('autofillText').value.trim();
+    if (!text) { $('autofillError').textContent = 'Pega el texto del pedido primero.'; $('autofillError').hidden = false; return; }
+    $('autofillError').hidden = true;
+    $('autofillSubmit').disabled = true;
+    $('autofillSubmit').textContent = 'Rellenando…';
+    try {
+      const result = await state.store.autofill(text);
+      applyAutofillResult(result);
+      $('autofillDialog').close();
+      toast('Factura rellenada — revisa los datos antes de guardar');
+    } catch (error) {
+      $('autofillError').textContent = error.message || 'No se pudo rellenar. Prueba a pegar el texto de nuevo.';
+      $('autofillError').hidden = false;
+    } finally {
+      $('autofillSubmit').disabled = false;
+      $('autofillSubmit').textContent = 'Rellenar factura';
+    }
+  });
   $('exportBtn').addEventListener('click', exportCsv);
   $('fVatRate').addEventListener('input', () => { recalc(); markDirty(); });
   $('fDiscountValue').addEventListener('input', () => { recalc(); markDirty(); });

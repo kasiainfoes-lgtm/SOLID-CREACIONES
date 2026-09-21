@@ -63,6 +63,10 @@ const schema = z.object({
   // an empty value simply leaves the bank block off the invoice.
   INVOICE_BANK_NAME: z.string().optional().default(''),
   INVOICE_BANK_IBAN: z.string().optional().default(''),
+  // "Rellenar con IA" en /facturas: extrae cliente/líneas/descuento de un
+  // texto pegado (pedido, WhatsApp...) con la API de Claude. Sin esta clave,
+  // el botón simplemente no aparece — el resto de la app funciona igual.
+  ANTHROPIC_API_KEY: z.string().optional().default(''),
 
   // --- Factory notification -------------------------------------------
   // WhatsApp has no official API access yet, so notifications go out over

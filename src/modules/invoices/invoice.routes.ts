@@ -12,6 +12,7 @@ import {
   nextInvoiceNumber,
   quarterlySummary
 } from './invoice.service.js';
+import { AutofillNotConfiguredError, autofillInvoiceFromText } from './invoice.autofill.js';
 
 const clientInput = z.object({
   name: z.string().min(1),
@@ -103,7 +104,23 @@ export async function invoiceRoutes(app: FastifyInstance) {
   // The page itself is public; every piece of data behind it needs a login.
   app.get('/facturas', async (_req, reply) => reply.type('text/html; charset=utf-8').send(invoicePage()));
 
-  app.get('/invoices/settings', { onRequest: [app.authenticate] }, async () => ({ issuer: INVOICE_ISSUER }));
+  app.get('/invoices/settings', { onRequest: [app.authenticate] }, async () => ({
+    issuer: INVOICE_ISSUER,
+    aiAvailable: Boolean(env.ANTHROPIC_API_KEY)
+  }));
+
+  app.post('/invoices/autofill', { onRequest: [app.authenticate] }, async (req, reply) => {
+    const parsed = z.object({ text: z.string().min(1) }).safeParse(req.body);
+    if (!parsed.success) return reply.code(400).send(parsed.error.flatten());
+    try {
+      return await autofillInvoiceFromText(parsed.data.text);
+    } catch (e) {
+      if (e instanceof AutofillNotConfiguredError) {
+        return reply.code(501).send({ error: 'ai_not_configured' });
+      }
+      return reply.code(502).send({ error: e instanceof Error ? e.message : String(e) });
+    }
+  });
 
   app.get('/invoices/next-number', { onRequest: [app.authenticate] }, async (req: any) => {
     const year = req.query?.year ? Number(req.query.year) : undefined;

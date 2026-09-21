@@ -198,6 +198,7 @@ Cuando **todas** las órdenes de fabricación del pedido (puede haber varias si 
 | GET | `/invoices/next-number` | JWT | Siguiente número libre de la serie |
 | GET | `/invoices/summary?year=` | JWT | Totales por trimestre (modelo 303) |
 | GET | `/invoices/from-order/:orderId` | JWT | Borrador de factura a partir de un pedido |
+| POST | `/invoices/autofill` | JWT | Extrae cliente/líneas/descuento de un texto pegado (IA) |
 | PATCH | `/invoices/:id/status` | JWT | Cambia el estado (borrador/emitida/cobrada/anulada) |
 | GET/POST | `/clients` | JWT | Clientes guardados |
 
@@ -224,13 +225,24 @@ Qué hace sola:
   y como se hace en una factura real. Un descuento mal escrito nunca puede dejar la
   base en negativo — se limita automáticamente. La fila solo aparece impresa cuando
   hay descuento; en una factura normal no se ve.
-- **IVA incluido en los precios**: una casilla ("Los precios de las líneas ya
-  incluyen el IVA") para cuando se copia un pedido de la tienda online, donde el
-  precio que ve la clienta ya lleva el IVA dentro. Marcada, el total que escribas
+- **IVA incluido en los precios**: un interruptor de dos botones ("No — se suma
+  el IVA" / "Sí — pedido de la tienda") para cuando se copia un pedido de la tienda
+  online, donde el precio que ve la clienta ya lleva el IVA dentro. Activado por
+  **defecto en cada factura nueva** (es el caso normal aquí), el total que escribas
   **no se mueve** (es lo que la clienta pagó de verdad): la base imponible y la
   cuota de IVA se calculan hacia atrás a partir de ese total, en vez de sumarle IVA
-  encima. Sin marcar (por defecto) funciona como una factura normal a empresa: el
-  IVA se añade sobre la base.
+  encima. Para una factura a empresa (como la del Excel original) se cambia al otro
+  botón, y el IVA se añade sobre la base como en una factura tradicional.
+- **Rellenar con IA**: pegas el texto que ya tengas — un pedido de WooCommerce
+  copiado tal cual, un mensaje de WhatsApp, un email — y un botón ("✨ Rellenar con
+  IA") extrae cliente, líneas, cantidades y descuento, y los pone en la factura.
+  Usa la API de Claude con la clave de `ANTHROPIC_API_KEY` (servidor, nunca en el
+  navegador); sin esa clave el botón simplemente no aparece, el resto de la
+  aplicación sigue igual. La IA **nunca calcula el total ni el IVA** — solo
+  extrae los datos en bruto (quién es el cliente, qué se vendió, a cuánto, si hay
+  cupón); los importes siempre los calcula la misma calculadora probada del resto
+  de la app (`src/modules/invoices/invoice.autofill.ts` hace la extracción,
+  `invoice.totals.ts` hace las cuentas). Siempre se revisa antes de guardar.
 - **Duplica** una factura anterior con el número siguiente, para clientes que se
   repiten cada mes.
 - **Resumen de IVA por trimestre** y **exportación a CSV** para la gestoría.
