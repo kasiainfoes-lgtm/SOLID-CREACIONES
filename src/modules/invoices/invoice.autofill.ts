@@ -13,6 +13,13 @@ import { env } from '../../config/env.js';
  * calculator every other invoice uses. Trusting an LLM's arithmetic here
  * would be exactly the kind of silent, hard-to-notice mistake this whole
  * tool was built to avoid.
+ *
+ * Every top-level field is independently nullable and means "not mentioned
+ * in this text" when null — never a guess. This lets the boss paste a
+ * partial update ("son 533 con el cupón de 59") onto an invoice where he
+ * already picked the client by hand: a null field is left alone by the
+ * page instead of overwriting what's already there. See applyAutofillResult
+ * in public/facturas/index.html for the merge logic on the other end.
  */
 
 const AutofillLine = z.object({
@@ -31,17 +38,8 @@ const AutofillLine = z.object({
   unitPrice: z.number().nonnegative().describe('Price per unit, in euros, with no currency symbol.')
 });
 
-const AutofillDiscount = z
+const AutofillClient = z
   .object({
-    label: z.string().nullable().describe('The coupon code if one is named (e.g. "BIENVENIDA10"), otherwise null.'),
-    type: z.enum(['percentage', 'fixed']).describe('"percentage" for a % off, "fixed" for a flat euro amount off.'),
-    value: z.number().positive().describe('The number itself: 10 for "10%", or 59 for "-59€".')
-  })
-  .nullable()
-  .describe('A coupon or discount applied to the order. null if there is none.');
-
-const AutofillSchema = z.object({
-  client: z.object({
     name: z.string().describe('Client/company name.'),
     taxId: z.string().nullable().describe('CIF/NIF if given, otherwise null.'),
     addressLine1: z.string().nullable(),
@@ -50,25 +48,44 @@ const AutofillSchema = z.object({
     province: z.string().nullable().describe('Province, only if it is stated separately from the city.'),
     email: z.string().nullable(),
     phone: z.string().nullable()
-  }),
+  })
+  .nullable()
+  .describe('Who the invoice is for. null when the text does not identify a client at all.');
+
+const AutofillDiscount = z
+  .object({
+    label: z.string().nullable().describe('The coupon code if one is named (e.g. "BIENVENIDA10"), otherwise null.'),
+    type: z.enum(['percentage', 'fixed']).describe('"percentage" for a % off, "fixed" for a flat euro amount off.'),
+    value: z.number().positive().describe('The number itself: 10 for "10%", or 59 for "-59€".')
+  })
+  .nullable()
+  .describe('A coupon or discount applied to the order. null if the text does not mention one.');
+
+const AutofillSchema = z.object({
+  client: AutofillClient,
   reference: z
     .string()
     .nullable()
     .describe('An order number or reference to print on the invoice (e.g. "Pedido nº S00016"), otherwise null.'),
-  lines: z.array(AutofillLine).min(1),
+  lines: z
+    .array(AutofillLine)
+    .nullable()
+    .describe('Articles being invoiced. null when the text names none (e.g. it is only a client or a total).'),
   discount: AutofillDiscount,
   vatRate: z
     .number()
     .min(0)
     .max(100)
-    .describe('The VAT/IVA percentage. Use 21 (Spain\'s general rate) unless the text names a different one.'),
+    .nullable()
+    .describe('The VAT/IVA percentage, only if the text actually implies one; otherwise null.'),
   vatMode: z
     .enum(['included', 'excluded'])
+    .nullable()
     .describe(
       '"included": the prices/total in the text are what a customer actually paid or a shop already charges ' +
         '(a web order, a retail sale) — VAT is baked into those figures already. "excluded": a B2B quote or ' +
-        'invoice where the amounts are pre-tax and VAT still needs to be added on top. Default to "included" ' +
-        'unless the text clearly reads as a pre-tax B2B price list.'
+        'invoice where the amounts are pre-tax and VAT still needs to be added on top. null when the text gives ' +
+        'no basis to tell — leave it as null rather than guessing "included" by default.'
     ),
   paymentMethod: z.string().nullable().describe('Payment method, only if the text actually states one.')
 });
@@ -91,10 +108,12 @@ function getClient(): Anthropic {
 
 const SYSTEM_PROMPT = `Extraes los datos de una factura a partir de un texto en español que te pega el dueño de un
 taller de superficies sólidas (encimeras, lavabos, duchas). El texto puede ser un pedido de tienda online, un
-mensaje de WhatsApp, un email o una nota escrita a mano. Extrae solo lo que el texto realmente dice — nunca
-inventes un cliente, una línea o un descuento que no esté presente. Si un dato no aparece, su campo debe quedar
-en null. No calcules totales, IVA ni bases imponibles: eso lo hace la aplicación aparte a partir de los datos
-que extraigas.`;
+mensaje de WhatsApp, un email, una nota escrita a mano, o solo un dato suelto (por ejemplo, únicamente un importe
+o únicamente un cupón) — el dueño puede haber elegido ya el cliente a mano y solo pegarte el resto. Extrae
+ÚNICAMENTE lo que el texto realmente dice: nunca inventes un cliente, una línea, un descuento o un modo de IVA
+que no esté presente. Cuando un dato no aparece en el texto, su campo debe quedar en null — null significa
+"no mencionado", no "vacío" ni "cero". No calcules totales, IVA ni bases imponibles: eso lo hace la aplicación
+aparte a partir de los datos que extraigas.`;
 
 export async function autofillInvoiceFromText(text: string): Promise<AutofillResult> {
   const trimmed = text.trim();

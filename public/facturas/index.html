@@ -1065,16 +1065,23 @@
    * are recalculated by the app's own calculator right after — the model
    * never supplies a total, only the raw client/line/discount data. */
   function applyAutofillResult(result) {
-    state.lines = result.lines && result.lines.length
-      ? result.lines.map(l => ({ code: l.code || '', description: l.description || '', quantity: l.quantity, unitPrice: l.unitPrice }))
-      : [blankLine()];
-    fillClient(result.client || {});
-    $('fReference').value = result.reference || '';
-    fillDiscount(result.discount);
-    fillVatMode(result.vatMode);
-    $('fVatRate').value = String(result.vatRate ?? state.issuer.defaultVatRate).replace('.', ',');
-    if (result.paymentMethod) $('fPayment').value = result.paymentMethod;
+    // Every field is null when that text didn't mention it — merge onto
+    // whatever is already on screen instead of overwriting it, so pasting
+    // just "son 533 con el cupón de 59" never wipes out a client picked by
+    // hand a moment earlier. Returns whether anything actually changed.
+    let changed = false;
+    if (result.client) { fillClient(result.client); changed = true; }
+    if (result.reference) { $('fReference').value = result.reference; changed = true; }
+    if (result.lines && result.lines.length) {
+      state.lines = result.lines.map(l => ({ code: l.code || '', description: l.description || '', quantity: l.quantity, unitPrice: l.unitPrice }));
+      changed = true;
+    }
+    if (result.discount) { fillDiscount(result.discount); changed = true; }
+    if (result.vatMode) { fillVatMode(result.vatMode); changed = true; }
+    if (result.vatRate != null) { $('fVatRate').value = String(result.vatRate).replace('.', ','); changed = true; }
+    if (result.paymentMethod) { $('fPayment').value = result.paymentMethod; changed = true; }
     renderLines(); recalc(); markDirty();
+    return changed;
   }
 
   function newInvoice(seed) {
@@ -1422,9 +1429,9 @@
     $('autofillSubmit').textContent = 'Rellenando…';
     try {
       const result = await state.store.autofill(text);
-      applyAutofillResult(result);
+      const changed = applyAutofillResult(result);
       $('autofillDialog').close();
-      toast('Factura rellenada — revisa los datos antes de guardar');
+      toast(changed ? 'Factura rellenada — revisa los datos antes de guardar' : 'No encontré datos nuevos en ese texto');
     } catch (error) {
       $('autofillError').textContent = error.message || 'No se pudo rellenar. Prueba a pegar el texto de nuevo.';
       $('autofillError').hidden = false;

@@ -242,7 +242,10 @@ Qué hace sola:
   extrae los datos en bruto (quién es el cliente, qué se vendió, a cuánto, si hay
   cupón); los importes siempre los calcula la misma calculadora probada del resto
   de la app (`src/modules/invoices/invoice.autofill.ts` hace la extracción,
-  `invoice.totals.ts` hace las cuentas). Siempre se revisa antes de guardar.
+  `invoice.totals.ts` hace las cuentas). Siempre se revisa antes de guardar. Solo
+  rellena lo que el texto pegado realmente dice: si eliges el cliente a mano y
+  luego le pasas a la IA solo el importe ("son 533 con el cupón de 59"), el
+  cliente elegido se queda tal cual — nunca lo borra.
 - **Duplica** una factura anterior con el número siguiente, para clientes que se
   repiten cada mes.
 - **Resumen de IVA por trimestre** y **exportación a CSV** para la gestoría.
@@ -276,7 +279,47 @@ Hostinger VPS soporta Docker Compose vía Docker Manager. Enfoque típico:
 3. Despliega `docker-compose.yml` con Hostinger Docker Manager o `docker compose up -d --build` por SSH.
 4. Pon un proxy inverso/dominio + HTTPS delante del puerto 3000 (necesario para que WooCommerce pueda llamar al webhook).
 5. No expongas PostgreSQL públicamente.
-6. Haz backup de PostgreSQL y rota los secretos periódicamente.
+6. Configura las copias de seguridad — ver la sección siguiente. Sin esto, las
+   facturas solo existen en el disco del VPS.
+
+## Copias de seguridad
+
+**Ahora mismo, sin configurar esto, las facturas viven únicamente en el disco del
+VPS.** El volumen de Docker (`postgres_data`) sí sobrevive a un `docker compose up
+-d --build`, a reiniciar el contenedor o a reiniciar el servidor entero — pero si el
+disco del VPS falla, se borra por accidente, o hay que reinstalar el servidor desde
+cero, las facturas desaparecen con él. Para algo que hace falta guardar por
+Hacienda, eso no es suficiente por sí solo.
+
+`scripts/backup-db.sh` guarda un volcado comprimido de la base de datos
+(`.sql.gz`) en `/opt/backups/solid-creaciones/` y borra los que tengan más de 30
+días. Pruébalo una vez a mano:
+
+```bash
+cd /opt/SOLID-CREACIONES
+./scripts/backup-db.sh
+```
+
+Para que se haga solo todos los días a las 3:00, instala el cron job una vez:
+
+```bash
+(crontab -l 2>/dev/null; echo "0 3 * * * cd /opt/SOLID-CREACIONES && ./scripts/backup-db.sh >> /var/log/facturas-backup.log 2>&1") | crontab -
+```
+
+Eso te protege de errores dentro de la aplicación, una migración mala o un borrado
+por accidente — pero **sigue estando en el mismo disco**. Para estar realmente a
+salvo si el servidor entero falla, copia esos ficheros fuera del VPS de vez en
+cuando: lo más simple es descargarlos a tu ordenador por SFTP (con WinSCP o
+FileZilla, conectando a `169.58.217.43` con tu usuario y contraseña de siempre,
+carpeta `/opt/backups/solid-creaciones/`) una vez a la semana o al mes. Si prefieres
+que esto también sea automático (por email, o subido a algún sitio en la nube),
+dímelo y lo dejamos montado.
+
+Para recuperar de un desastre (con el `.sql.gz` que corresponda):
+
+```bash
+./scripts/restore-db.sh /opt/backups/solid-creaciones/facturas-20260921-030001.sql.gz
+```
 
 ## Próximos pasos recomendados antes de producción real
 
