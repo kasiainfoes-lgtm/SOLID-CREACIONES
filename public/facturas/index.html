@@ -467,11 +467,11 @@
         </div>
 
         <div class="totals">
-          <div class="vat-toggle" id="vatToggle" data-mode="excluded">
+          <div class="vat-toggle" id="vatToggle" data-mode="included">
             <span class="vat-toggle-label">¿Los precios de arriba ya incluyen el IVA?</span>
             <div class="vat-toggle-buttons" role="group" aria-label="Cómo calcular el IVA de esta factura">
-              <button type="button" class="vat-toggle-btn" id="vatModeExcludedBtn" aria-pressed="true">No — se suma el IVA</button>
-              <button type="button" class="vat-toggle-btn" id="vatModeIncludedBtn" aria-pressed="false">Sí — pedido de la tienda</button>
+              <button type="button" class="vat-toggle-btn" id="vatModeExcludedBtn" aria-pressed="false">No — se suma el IVA</button>
+              <button type="button" class="vat-toggle-btn" id="vatModeIncludedBtn" aria-pressed="true">Sí — pedido de la tienda</button>
             </div>
             <span class="vat-toggle-hint" id="vatToggleHint">El IVA se calcula sobre el bruto y se suma al total.</span>
           </div>
@@ -1049,7 +1049,10 @@
     $('fClientPick').value = '';
     fillClient((seed && seed.client) || {});
     fillDiscount(seed && seed.discount);
-    fillVatMode(seed && seed.vatMode);
+    // Every new invoice defaults to "IVA incluido" — the normal case here is
+    // a shop order, not a B2B invoice. Duplicating an existing one still
+    // respects whatever mode that invoice actually used.
+    fillVatMode(seed ? seed.vatMode : 'included');
 
     renderLines(); recalc(); renderInvoiceList();
     state.touched = false;
