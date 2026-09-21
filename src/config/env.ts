@@ -90,7 +90,13 @@ const schema = z.object({
   SMTP_SECURE: boolFromString('false'),
   SMTP_USER: z.string().optional().default(''),
   SMTP_PASS: z.string().optional().default(''),
-  SMTP_FROM: z.string().default('Solid Creaciones <info@solidcreaciones.es>')
+  SMTP_FROM: z.string().default('Solid Creaciones <info@solidcreaciones.es>'),
+
+  // --- Copias de seguridad ---------------------------------------------
+  // Si está puesto (junto con SMTP_*), scripts/backup-db.sh envía cada
+  // volcado por email a esta dirección — la forma sencilla de sacarlo del
+  // servidor cada noche sin instalar nada más.
+  BACKUP_EMAIL_TO: z.string().optional().default('')
 });
 
 export const env = schema.parse(process.env);

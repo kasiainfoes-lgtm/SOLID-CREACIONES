@@ -20,6 +20,10 @@ services:
     env_file: .env
     ports:
       - "3000:3000"
+    volumes:
+      # Lets scripts/email-backup.mjs (run inside this container) read the
+      # dump that scripts/backup-db.sh (run on the host) just wrote.
+      - /opt/backups/solid-creaciones:/app/backups
     depends_on:
       db:
         condition: service_healthy

@@ -8,8 +8,9 @@
 #
 # This alone only protects the data against mistakes inside the app or a
 # bad migration — it lives on the SAME disk as everything else, so it does
-# NOT protect against losing the whole VPS. Copy the files this produces
-# off the server regularly (README explains how) for that.
+# NOT protect against losing the whole VPS. If SMTP_HOST and BACKUP_EMAIL_TO
+# are set in .env, this also emails each dump off the server automatically
+# (scripts/email-backup.mjs) — see README.md "Copias de seguridad".
 set -eu
 
 REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
@@ -35,3 +36,9 @@ echo "Copia guardada en $OUT_FILE ($(du -h "$OUT_FILE" | cut -f1))"
 
 # Prune anything older than KEEP_DAYS.
 find "$BACKUP_DIR" -name 'facturas-*.sql.gz' -mtime "+$KEEP_DAYS" -delete
+
+# Best-effort: send it off the server by email. A failure here must never
+# make the whole backup look like it failed — the file above is already
+# safe on disk regardless.
+docker compose exec -T api node scripts/email-backup.mjs "/app/backups/$(basename "$OUT_FILE")" \
+  || echo "backup-db.sh: no se pudo enviar por email (revisa SMTP_HOST/BACKUP_EMAIL_TO en .env); la copia local sigue estando bien" >&2

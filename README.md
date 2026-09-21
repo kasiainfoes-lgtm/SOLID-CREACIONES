@@ -308,12 +308,38 @@ Para que se haga solo todos los días a las 3:00, instala el cron job una vez:
 
 Eso te protege de errores dentro de la aplicación, una migración mala o un borrado
 por accidente — pero **sigue estando en el mismo disco**. Para estar realmente a
-salvo si el servidor entero falla, copia esos ficheros fuera del VPS de vez en
-cuando: lo más simple es descargarlos a tu ordenador por SFTP (con WinSCP o
-FileZilla, conectando a `169.58.217.43` con tu usuario y contraseña de siempre,
-carpeta `/opt/backups/solid-creaciones/`) una vez a la semana o al mes. Si prefieres
-que esto también sea automático (por email, o subido a algún sitio en la nube),
-dímelo y lo dejamos montado.
+salvo si el servidor entero falla, esos ficheros tienen que salir del VPS.
+
+### Envío automático por email
+
+Si rellenas `SMTP_HOST` y `BACKUP_EMAIL_TO` en el `.env`, cada copia se manda sola
+por correo en cuanto se crea — sin instalar nada más en el servidor. Con Gmail:
+
+1. Activa la verificación en dos pasos en tu cuenta de Google (si no la tienes ya):
+   https://myaccount.google.com/security
+2. Crea una **contraseña de aplicación**: https://myaccount.google.com/apppasswords
+   — elige un nombre como "Facturas backup" y copia la contraseña de 16 letras que
+   te da (esa, no la de tu cuenta normal).
+3. En el `.env` del servidor:
+   ```
+   SMTP_HOST=smtp.gmail.com
+   SMTP_PORT=587
+   SMTP_SECURE=false
+   SMTP_USER=tu-correo@gmail.com
+   SMTP_PASS=la contraseña de 16 letras, sin espacios
+   SMTP_FROM=Facturas Innova <tu-correo@gmail.com>
+   BACKUP_EMAIL_TO=tu-correo@gmail.com
+   ```
+4. `docker compose up -d --build` (para que el contenedor vea la carpeta de
+   backups — hace falta una vez tras este cambio) y luego `./scripts/backup-db.sh`
+   para probarlo. Si todo está bien, te llega un correo con el `.sql.gz` adjunto.
+
+Si `SMTP_HOST`/`BACKUP_EMAIL_TO` no están puestos, el backup local se sigue
+haciendo igual — solo se salta el envío por correo, sin dar error.
+
+*(Estas mismas variables `SMTP_*` son las que usan las notificaciones a fábrica y
+las reseñas si `FACTORY_NOTIFIER`/`REVIEW_NOTIFIER` están en `email` — configurarlas
+aquí también las deja funcionando a ellas.)*
 
 Para recuperar de un desastre (con el `.sql.gz` que corresponda):
 
